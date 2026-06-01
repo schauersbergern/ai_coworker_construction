@@ -19,7 +19,7 @@
 - `package.json`, `tsconfig.json`, `next.config.ts` — Scaffold (Next 16)
 - `src/app/globals.css` — Tailwind v4 + Markenfarben via `@theme`
 - `docker-compose.yml` — Postgres **und** Mailpit (dev + test, reproduzierbarer Login)
-- `.env.example`, `.env`, `.env.test` — Konfiguration (inkl. reservierter Inngest-Vars)
+- `.env.example`, `.env.test.example` (beide committed), `.env`, `.env.test` (lokal, ignoriert) — Konfiguration (inkl. reservierter Inngest-Vars)
 - `prisma/schema.prisma` — vollständiges Datenmodell (alle Tabellen, auch für spätere Pläne)
 - `prisma/seed.ts` — manuelles Provisionieren von Org + Nutzer:in (Pilot)
 - `src/server/db.ts` — Prisma-Client-Singleton
@@ -369,16 +369,32 @@ import { config } from "dotenv";
 config({ path: ".env.test", override: true });
 ```
 
-- [ ] **Step 4: scripts/test-db.sh anlegen**
+- [ ] **Step 4: scripts/test-db.sh anlegen (reproduzierbar aus frischem Checkout)**
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Reproducible from a fresh checkout: if no local .env.test exists yet,
+# bootstrap it from the committed template.
+if [ ! -f .env.test ]; then
+  cp .env.test.example .env.test
+  echo "created .env.test from .env.test.example"
+fi
+
 export $(grep -v '^#' .env.test | xargs)
+
+# Ensure the test database exists (Postgres has no CREATE DATABASE IF NOT EXISTS).
+if ! docker compose exec -T db psql -U baudoku -d baudoku -tAc \
+    "SELECT 1 FROM pg_database WHERE datname='baudoku_test'" | grep -q 1; then
+  docker compose exec -T db psql -U baudoku -d baudoku -c "CREATE DATABASE baudoku_test;"
+  echo "created database baudoku_test"
+fi
+
 pnpm prisma migrate deploy
 echo "test db migrated"
 ```
-Danach: `chmod +x scripts/test-db.sh`
+Danach: `chmod +x scripts/test-db.sh`. Außerdem `.env.test.example` (committed, identische Werte wie `.env.test`) anlegen und in `.gitignore` `!.env.test.example` ergänzen, damit ein frischer Checkout/CI `pnpm db:test:migrate` ohne verstecktes lokales Setup ausführen kann.
 
 - [ ] **Step 5: package.json-Scripts ergänzen**
 
