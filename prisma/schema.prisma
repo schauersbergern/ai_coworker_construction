@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  emailVerified  DateTime?
+  name           String?
+  orgId          String?
+  organization   Organization? @relation(fields: [orgId], references: [id])
+  accounts       Account[]
+  sessions       Session[]
+  createdReports Report[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  createdAt DateTime  @default(now())
+  users     User[]
+  projects  Project[]
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name      String
+  address   String?
+  projectNo String?
+  createdAt DateTime @default(now())
+  notes     Note[]
+  photos    Photo[]
+  reports   Report[]
+
+  @@index([orgId])
+}
+
+enum TranscriptStatus {
+  pending
+  done
+  failed
+}
+
+model Note {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  audioUrl         String
+  transcript       String?
+  transcriptStatus TranscriptStatus @default(pending)
+  recordedAt       DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([projectId])
+}
+
+model Photo {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fileUrl          String
+  exifTakenAt      DateTime?
+  clientCapturedAt DateTime
+  uploadedAt       DateTime @default(now())
+
+  @@index([projectId])
+}
+
+enum ReportStatus {
+  pending
+  done
+  failed
+}
+
+model Report {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label       String
+  status      ReportStatus @default(pending)
+  pdfUrl      String?
+  reportJson  Json?
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  generatedAt DateTime @default(now())
+
+  @@index([projectId])
+}
