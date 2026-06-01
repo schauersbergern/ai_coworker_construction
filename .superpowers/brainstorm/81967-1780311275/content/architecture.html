@@ -1,0 +1,45 @@
+<h2>Systemarchitektur (Next.js, eine Codebasis)</h2>
+<p class="subtitle">PWA-Frontend + API-Routes + Postgres + Storage + Claude/Whisper</p>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Client (PWA — Büro & Baustelle)</div>
+    <div class="mockup-body">
+      <div class="mock-content">
+        Next.js App Router · React · installierbar (Service Worker)<br>
+        Seiten: Projektliste · Projekt-Detail (Notizen/Fotos sammeln) · Export
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;font-size:20px;color:#888">↕ &nbsp; HTTPS / API Routes</div>
+
+  <div class="mockup">
+    <div class="mockup-header">Server (Next.js API Routes / Server Actions)</div>
+    <div class="mockup-body">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="mock-content"><strong>auth</strong> — Login (einfach, E-Mail-Magic-Link)</div>
+        <div class="mock-content"><strong>projects</strong> — CRUD Projekte</div>
+        <div class="mock-content"><strong>notes</strong> — Audio-Upload → Whisper-Transkript</div>
+        <div class="mock-content"><strong>photos</strong> — Foto-Upload (+ Zeitstempel/EXIF)</div>
+        <div class="mock-content"><strong>report</strong> — KI-Doku generieren → PDF</div>
+      </div>
+      <p style="margin-top:8px;color:#888">Jede Domäne ein eigenes Modul → später einzeln vertreibbar.</p>
+    </div>
+  </div>
+
+  <div style="text-align:center;font-size:20px;color:#888">↓</div>
+
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Daten</div>
+      <div class="mockup-body"><div class="mock-content">Postgres (Projekte, Notizen, Fotos-Metadaten)<br>Object Storage (Audio, Fotos, PDFs)</div></div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">KI-Dienste</div>
+      <div class="mockup-body"><div class="mock-content">Whisper / STT → Transkription<br>Claude (Anthropic) → Doku-Text + Struktur<br>PDF-Renderer → finales Dokument</div></div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle">Details zum Datenmodell stehen im Terminal.</p>
