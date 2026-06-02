@@ -6,7 +6,8 @@ export interface Transcriber {
 /** Test-Implementierung: deterministisch, ohne externe Abhängigkeiten. */
 export class FakeTranscriber implements Transcriber {
   constructor(private readonly result: string = "Transkript (Fake)") {}
-  async transcribe(_audioAbsPath: string): Promise<string> {
+  // Implementiert `Transcriber.transcribe`; der Audiopfad wird im Fake nicht gebraucht.
+  async transcribe(): Promise<string> {
     return this.result;
   }
 }
