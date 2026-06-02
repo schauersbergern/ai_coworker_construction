@@ -40,8 +40,10 @@ services:
 
   # Persistenter Whisper-Worker (gleiches Image wie app, anderer Befehl). Lädt das
   # Modell EINMAL beim Start und hält es warm → kurze Notizen ~1–2 s statt ~5 s.
+  # Nutzt dasselbe Image wie app (das app baut) — KEIN eigenes build, sonst Konflikt
+  # auf demselben Image-Tag. Der Build läuft vor der Start-Reihenfolge, daher ist
+  # baudoku-app vorhanden, wenn whisper startet.
   whisper:
-    build: .
     image: baudoku-app
     container_name: baudoku_whisper
     command: ["/app/.venv-whisper/bin/python", "/app/scripts/whisper_server.py"]
