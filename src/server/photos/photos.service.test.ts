@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
-import { createPhoto, listPhotos } from "./photos.service";
+import { createPhoto, listPhotos, getPhotoForOrg, deletePhoto } from "./photos.service";
 
 async function makeProject() {
   const org = await prisma.organization.create({ data: { name: "Büro" } });
@@ -32,5 +32,38 @@ describe("photos.service", () => {
     const b = await makeProject();
     await createPhoto(a.project.id, { fileKey: "k", clientCapturedAt: new Date(), exifTakenAt: null });
     expect(await listPhotos(b.org.id, a.project.id)).toHaveLength(0);
+  });
+
+  it("getPhotoForOrg enforces org scoping", async () => {
+    const a = await makeProject();
+    const b = await makeProject();
+    const photo = await createPhoto(a.project.id, { fileKey: "k", clientCapturedAt: new Date(), exifTakenAt: null });
+    expect(await getPhotoForOrg(b.org.id, photo.id)).toBeNull();
+    expect((await getPhotoForOrg(a.org.id, photo.id))?.id).toBe(photo.id);
+  });
+
+  it("deletePhoto removes the row; deleting a missing photo is a no-op", async () => {
+    const { org, project } = await makeProject();
+    const photo = await createPhoto(project.id, { fileKey: "k", clientCapturedAt: new Date(), exifTakenAt: null });
+    await deletePhoto(org.id, photo.id);
+    expect(await listPhotos(org.id, project.id)).toHaveLength(0);
+    await expect(deletePhoto(org.id, photo.id)).resolves.toBeUndefined();
+  });
+
+  it("deletePhoto is org-scoped: a foreign org cannot delete the photo", async () => {
+    const a = await makeProject();
+    const b = await makeProject();
+    const photo = await createPhoto(a.project.id, { fileKey: "k", clientCapturedAt: new Date(), exifTakenAt: null });
+    await deletePhoto(b.org.id, photo.id);
+    expect(await listPhotos(a.org.id, a.project.id)).toHaveLength(1);
+  });
+
+  it("deletePhoto is idempotent under parallel calls (no P2025)", async () => {
+    const { org, project } = await makeProject();
+    const photo = await createPhoto(project.id, { fileKey: "k", clientCapturedAt: new Date(), exifTakenAt: null });
+    await expect(
+      Promise.all([deletePhoto(org.id, photo.id), deletePhoto(org.id, photo.id)]),
+    ).resolves.toBeDefined();
+    expect(await listPhotos(org.id, project.id)).toHaveLength(0);
   });
 });

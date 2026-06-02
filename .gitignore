@@ -49,3 +49,7 @@ next-env.d.ts
 /storage-test
 
 /.venv-whisper
+__pycache__/
+
+# local tooling (Claude Code hooks/config)
+/.claude

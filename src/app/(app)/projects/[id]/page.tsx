@@ -42,7 +42,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
       <section className="card p-5 flex flex-col gap-4">
         <h2 className="font-bold flex items-center gap-2">📷 Fotos</h2>
         <PhotoUploader projectId={project.id} />
-        <PhotoGallery photos={photos.map((p) => ({ id: p.id, fileKey: p.fileUrl }))} />
+        <PhotoGallery projectId={project.id} photos={photos.map((p) => ({ id: p.id, fileKey: p.fileUrl }))} />
       </section>
 
       <section className="card p-5 flex flex-col gap-4">
