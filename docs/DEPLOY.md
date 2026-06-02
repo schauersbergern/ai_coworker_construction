@@ -20,10 +20,9 @@ Die App-Architektur:
 A-Record setzen: `employees.aicoreinfra.de` → `72.62.42.27`. Mit `dig +short employees.aicoreinfra.de`
 prüfen, dass die IP zurückkommt, bevor du das Zertifikat holst.
 
-### 2. GitHub-Secret  *(nur du)*
-Im Repo `schauersbergern/ai_coworker_construction` → Settings → Secrets and variables → Actions:
-**`DEPLOY_SSH_KEY`** = derselbe private Deploy-Key wie bei `angebotparser` (Zugang zu `deploy@72.62.42.27`).
-Optional ein GitHub-Environment `production` mit Pflicht-Review anlegen (die Action referenziert es bereits).
+### 2. CD-Runner (self-hosted)
+Der Server steht hinter **ufw**, das die wechselnden GitHub-hosted-Runner-IPs auf Port 22 blockt — SSH-basierte Deploys (appleboy/ssh-action) laufen daher in einen Timeout. Stattdessen läuft ein **self-hosted GitHub Runner** auf dem Server (`~/actions-runner`, über pm2 als `gh-runner`, Label `self-hosted`). Er verbindet sich **ausgehend** zu GitHub → kein offener Port nötig. Das Workflow (`.github/workflows/deploy.yml`) nutzt `runs-on: self-hosted` und deployt lokal (kein SSH, kein `DEPLOY_SSH_KEY`).
+Neu aufsetzen falls nötig: Repo → Settings → Actions → Runners → New self-hosted runner → Token; dann `~/actions-runner/config.sh --url … --token … --unattended --labels self-hosted` + `pm2 start ./run.sh --name gh-runner && pm2 save`.
 
 ### 3. Inngest Cloud  *(nur du)*
 Kostenlosen Account auf inngest.com anlegen, eine App „baudoku" erstellen, **Event Key** und
