@@ -21,16 +21,31 @@ export function NoteRecorder({ projectId }: { projectId: string }) {
 
   async function start() {
     setError(null);
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeType = pickSupportedMimeType();
-    const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    chunksRef.current = [];
-    rec.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
-    rec.onstop = () =>
-      upload(new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "audio/webm" }));
-    rec.start();
-    mediaRef.current = rec;
-    setRecording(true);
+    let stream: MediaStream | undefined;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickSupportedMimeType();
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
+      rec.onstop = () =>
+        upload(new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "audio/webm" }));
+      rec.start();
+      mediaRef.current = rec;
+      setRecording(true);
+    } catch (e) {
+      // Mikrofon-Erlaubnis verweigert oder Recorder nicht konstruierbar:
+      // bereits geöffnete Tracks freigeben und Fehler sichtbar machen.
+      stream?.getTracks().forEach((t) => t.stop());
+      setRecording(false);
+      setError(
+        e instanceof Error && e.name === "NotAllowedError"
+          ? "Mikrofon-Zugriff verweigert."
+          : e instanceof Error
+            ? e.message
+            : "Aufnahme konnte nicht gestartet werden",
+      );
+    }
   }
 
   function stop() {

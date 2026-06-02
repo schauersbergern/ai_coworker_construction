@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
 import { getProject } from "@/server/projects/projects.service";
-import { createNote } from "@/server/notes/notes.service";
+import { createNote, setTranscriptStatus } from "@/server/notes/notes.service";
 import { storage } from "@/server/storage";
 import { inngest } from "@/inngest/client";
 
@@ -43,6 +43,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   await storage.put(key, buffer, file.type);
   const note = await createNote(projectId, { audioKey: key, recordedAt });
 
-  await inngest.send({ name: "note/created", data: { noteId: note.id } });
+  // Schlägt das Enqueuen fehl, bliebe die Notiz sonst dauerhaft "pending" ohne
+  // Wiederherstellung (die UI bietet Retry nur für "failed"). Daher: auf "failed"
+  // setzen, damit sie über den bestehenden Retry-Pfad wiederanstoßbar ist.
+  try {
+    await inngest.send({ name: "note/created", data: { noteId: note.id } });
+  } catch {
+    const failed = await setTranscriptStatus(note.id, "failed");
+    return NextResponse.json(
+      { id: failed.id, transcriptStatus: failed.transcriptStatus, error: "Transkription konnte nicht gestartet werden" },
+      { status: 502 },
+    );
+  }
   return NextResponse.json({ id: note.id, transcriptStatus: note.transcriptStatus });
 }

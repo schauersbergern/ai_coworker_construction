@@ -24,9 +24,20 @@ export function NotesList({ projectId, notes }: { projectId: string; notes: Note
 
 function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
   const [text, setText] = useState(note.transcript ?? "");
+  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  // Eingehende Transkripte (z. B. nach Abschluss des Hintergrund-Jobs + router.refresh())
+  // übernehmen – aber nur, wenn keine ungespeicherten lokalen Edits vorliegen.
+  // React-empfohlenes Muster: State während des Renders anpassen (kein useEffect),
+  // ausgelöst durch den Wechsel des transcript-Props.
+  const [prevTranscript, setPrevTranscript] = useState(note.transcript);
+  if (note.transcript !== prevTranscript) {
+    setPrevTranscript(note.transcript);
+    if (!dirty) setText(note.transcript ?? "");
+  }
 
   async function save() {
     setSaving(true);
@@ -38,6 +49,7 @@ function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
         body: JSON.stringify({ transcript: text }),
       });
       if (!res.ok) throw new Error("Speichern fehlgeschlagen");
+      setDirty(false);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Speichern fehlgeschlagen");
@@ -69,7 +81,10 @@ function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
       )}
       <textarea
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setDirty(true);
+        }}
         placeholder={note.transcriptStatus === "pending" ? "Transkription läuft…" : "Transkript"}
         className="border rounded p-2 min-h-20"
       />
