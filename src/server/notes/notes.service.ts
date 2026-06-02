@@ -55,5 +55,7 @@ export async function deleteNote(orgId: string, noteId: string): Promise<void> {
   } catch (err) {
     logError("notes", "audio delete failed", err, { noteId });
   }
-  await prisma.note.delete({ where: { id: noteId } });
+  // deleteMany statt delete: idempotent bei parallelen Deletes (kein P2025, wenn
+  // ein anderer Request die Zeile bereits entfernt hat) und org-scoped.
+  await prisma.note.deleteMany({ where: { id: noteId, project: { orgId } } });
 }

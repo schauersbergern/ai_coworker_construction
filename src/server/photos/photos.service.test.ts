@@ -57,4 +57,13 @@ describe("photos.service", () => {
     await deletePhoto(b.org.id, photo.id);
     expect(await listPhotos(a.org.id, a.project.id)).toHaveLength(1);
   });
+
+  it("deletePhoto is idempotent under parallel calls (no P2025)", async () => {
+    const { org, project } = await makeProject();
+    const photo = await createPhoto(project.id, { fileKey: "k", clientCapturedAt: new Date(), exifTakenAt: null });
+    await expect(
+      Promise.all([deletePhoto(org.id, photo.id), deletePhoto(org.id, photo.id)]),
+    ).resolves.toBeDefined();
+    expect(await listPhotos(org.id, project.id)).toHaveLength(0);
+  });
 });

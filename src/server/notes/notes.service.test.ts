@@ -63,4 +63,13 @@ describe("notes.service", () => {
     await deleteNote(b.org.id, note.id);
     expect(await listNotes(a.org.id, a.project.id)).toHaveLength(1);
   });
+
+  it("deleteNote is idempotent under parallel calls (no P2025)", async () => {
+    const { org, project } = await makeProject();
+    const note = await createNote(project.id, { audioKey: "k", recordedAt: new Date() });
+    await expect(
+      Promise.all([deleteNote(org.id, note.id), deleteNote(org.id, note.id)]),
+    ).resolves.toBeDefined();
+    expect(await listNotes(org.id, project.id)).toHaveLength(0);
+  });
 });

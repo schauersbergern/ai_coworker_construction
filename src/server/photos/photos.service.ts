@@ -47,5 +47,7 @@ export async function deletePhoto(orgId: string, photoId: string): Promise<void>
   } catch (err) {
     logError("photos", "file delete failed", err, { photoId });
   }
-  await prisma.photo.delete({ where: { id: photoId } });
+  // deleteMany statt delete: idempotent bei parallelen Deletes (kein P2025, wenn
+  // ein anderer Request die Zeile bereits entfernt hat) und org-scoped.
+  await prisma.photo.deleteMany({ where: { id: photoId, project: { orgId } } });
 }

@@ -36,8 +36,8 @@ describe("runTranscribeNote", () => {
       transcriber: new FakeTranscriber("Riss in der Wand"),
     });
 
-    expect(result.transcriptStatus).toBe("done");
-    expect(result.transcript).toBe("Riss in der Wand");
+    expect(result?.transcriptStatus).toBe("done");
+    expect(result?.transcript).toBe("Riss in der Wand");
   });
 
   it("marks the note failed if transcription throws", async () => {
@@ -53,5 +53,31 @@ describe("runTranscribeNote", () => {
 
     const reloaded = await prisma.note.findUnique({ where: { id: note.id } });
     expect(reloaded?.transcriptStatus).toBe("failed");
+  });
+
+  it("is a no-op (no throw) when the note was already deleted before the job runs", async () => {
+    const storage = new LocalStorage(dir);
+    const result = await runTranscribeNote("missing-note-id", {
+      storage,
+      transcriber: new FakeTranscriber("egal"),
+    });
+    expect(result).toBeNull();
+  });
+
+  it("does not mark failed if the note is deleted mid-job", async () => {
+    const key = "projects/p/notes/n3.webm";
+    const storage = new LocalStorage(dir);
+    await storage.put(key, Buffer.from("audio"), "audio/webm");
+    const note = await makeNote(key);
+
+    // Transcriber, der die Notiz während der Verarbeitung löscht und dann wirft.
+    const deletingTranscriber = {
+      transcribe: async () => {
+        await prisma.note.delete({ where: { id: note.id } });
+        throw new Error("whisper down");
+      },
+    };
+    const result = await runTranscribeNote(note.id, { storage, transcriber: deletingTranscriber });
+    expect(result).toBeNull();
   });
 });

@@ -12,10 +12,17 @@ export type TranscribeDeps = { storage: ObjectStorage; transcriber: Transcriber 
  * Lädt das Audio des Notes aus dem Storage in eine temporäre Datei, transkribiert
  * es und speichert das Ergebnis. Bei Fehler wird der Status auf `failed` gesetzt
  * und der Fehler weitergeworfen (Inngest retryt dann).
+ *
+ * Wurde die Notiz inzwischen gelöscht (z. B. eine noch pending Notiz entfernt),
+ * endet der Job als No-op (Rückgabe `null`) statt als Fehler — sonst würde Inngest
+ * einen Job für nicht mehr existente Daten retryen.
  */
 export async function runTranscribeNote(noteId: string, deps: TranscribeDeps) {
   const note = await getNoteForOrgless(noteId);
-  if (!note) throw new Error(`Note ${noteId} not found`);
+  if (!note) {
+    log("transcribe", "cancelled: note deleted", { noteId });
+    return null;
+  }
 
   const ext = extname(note.audioUrl) || ".webm";
   const tmp = await mkdtemp(join(tmpdir(), "whisper-"));
@@ -31,6 +38,12 @@ export async function runTranscribeNote(noteId: string, deps: TranscribeDeps) {
     if (text.length === 0) log("transcribe", "WARN empty transcript", { noteId });
     return result;
   } catch (err) {
+    // Wurde die Notiz während des Jobs gelöscht, ist der Fehler erwartbar
+    // (fehlendes Audio bzw. verschwundene Zeile) → No-op statt failed/Retry.
+    if (!(await getNoteForOrgless(noteId))) {
+      log("transcribe", "cancelled: note deleted mid-job", { noteId });
+      return null;
+    }
     await setTranscriptStatus(noteId, "failed");
     logError("transcribe", "failed", err, { noteId });
     throw err;
