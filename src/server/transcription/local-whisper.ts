@@ -1,42 +1,37 @@
-import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { extname } from "node:path";
 import type { Transcriber } from "./transcriber";
 
-/** Ruft scripts/transcribe.py im whisper-venv auf und liefert stdout als Transkript. */
+/**
+ * Schickt das Audio an den persistenten Whisper-Worker (scripts/whisper_server.py),
+ * der das Modell warmhält → kein Modell-Laden pro Notiz, deutlich schneller.
+ */
 export class LocalWhisperTranscriber implements Transcriber {
   constructor(
-    private readonly venvDir: string = process.env.WHISPER_VENV ?? ".venv-whisper",
-    private readonly scriptPath: string = join(process.cwd(), "scripts", "transcribe.py"),
+    private readonly url: string = process.env.WHISPER_URL ?? "http://whisper:8001/transcribe",
   ) {}
 
-  transcribe(audioAbsPath: string): Promise<string> {
-    const python = join(this.venvDir, "bin", "python");
+  async transcribe(audioAbsPath: string): Promise<string> {
+    const data = await readFile(audioAbsPath);
+    const ext = extname(audioAbsPath).replace(/^\./, "") || "webm";
     const timeoutMs = Number(process.env.WHISPER_TIMEOUT_MS ?? 120_000);
-    return new Promise((resolve, reject) => {
-      const proc = spawn(python, [this.scriptPath, audioAbsPath], { env: process.env });
-      let out = "";
-      let err = "";
-      let settled = false;
-      const finish = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        fn();
-      };
-      const timer = setTimeout(() => {
-        proc.kill("SIGKILL");
-        finish(() => reject(new Error(`whisper timed out after ${timeoutMs}ms`)));
-      }, timeoutMs);
-      proc.stdout.on("data", (d) => (out += d.toString()));
-      proc.stderr.on("data", (d) => (err += d.toString()));
-      proc.on("error", (e) => finish(() => reject(e)));
-      proc.on("close", (code) => {
-        finish(() =>
-          code === 0
-            ? resolve(out.trim())
-            : reject(new Error(`whisper exited ${code}: ${err.trim()}`)),
-        );
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "X-Audio-Ext": ext },
+        body: new Uint8Array(data),
+        signal: controller.signal,
       });
-    });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`whisper worker HTTP ${res.status}: ${detail.slice(0, 200)}`);
+      }
+      const json = (await res.json()) as { text?: string };
+      return (json.text ?? "").trim();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
