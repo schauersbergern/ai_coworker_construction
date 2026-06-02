@@ -1,8 +1,10 @@
 import type { InngestFunction } from "inngest";
 import { inngest } from "./client";
 import { runTranscribeNote } from "@/server/notes/transcribe-note";
+import { runGenerateReport } from "@/server/reports/generate-report";
 import { storage } from "@/server/storage";
 import { LocalWhisperTranscriber } from "@/server/transcription/local-whisper";
+import { ClaudeDocGenerator } from "@/server/docgen/claude-doc-generator";
 
 export const transcribeNote = inngest.createFunction(
   { id: "transcribe-note", retries: 2, triggers: [{ event: "note/created" }] },
@@ -16,4 +18,16 @@ export const transcribeNote = inngest.createFunction(
   },
 );
 
-export const functions: InngestFunction.Any[] = [transcribeNote];
+export const generateReport = inngest.createFunction(
+  { id: "generate-report", retries: 1, triggers: [{ event: "report/requested" }] },
+  async ({ event }: { event: { data: { reportId: string } } }) => {
+    await runGenerateReport(event.data.reportId, {
+      storage,
+      docGenerator: new ClaudeDocGenerator(),
+      now: new Date(),
+    });
+    return { reportId: event.data.reportId };
+  },
+);
+
+export const functions: InngestFunction.Any[] = [transcribeNote, generateReport];
