@@ -99,13 +99,14 @@ describe("matchPhotosToNotes", () => {
     expect(r.byNote.get("n2")).toEqual(["p1"]);
   });
 
-  it("is deterministic on ties (picks the earliest note)", () => {
+  it("treats an ambiguous tie as unmatched (→ appendix, per spec)", () => {
     const tied = [
       { id: "a", recordedAt: t("2026-06-01T09:00:00Z") },
       { id: "b", recordedAt: t("2026-06-01T09:02:00Z") },
     ];
     const r = matchPhotosToNotes(tied, [{ id: "p", effectiveTime: t("2026-06-01T09:01:00Z") }]); // 60s to both
-    expect(r.byNote.get("a")).toEqual(["p"]);
+    expect(r.unmatched).toEqual(["p"]);
+    expect([...r.byNote.values()].flat()).toEqual([]);
   });
 
   it("returns all photos unmatched when there are no notes", () => {
@@ -133,34 +134,40 @@ const WINDOW_MS = 2 * 60 * 1000; // ±2 Minuten
 
 /**
  * Ordnet jedes Foto der zeitlich nächstgelegenen Notiz zu, sofern der Abstand
- * |effectiveTime − recordedAt| ≤ 2 Min ist. Bei Gleichstand gewinnt die früheste
- * Notiz (deterministisch). Sonst → unmatched. Rein funktional, kein I/O.
+ * |effectiveTime − recordedAt| ≤ 2 Min ist UND eindeutig ist. Liegen zwei oder mehr
+ * Notizen exakt gleich nah (mehrdeutig) oder ist keine im Fenster, kommt das Foto in
+ * den Anhang (`unmatched`) — gemäß Spec §6b. Rein funktional, kein I/O.
  */
 export function matchPhotosToNotes(notes: NoteRef[], photos: PhotoRef[]): MatchResult {
   const byNote = new Map<string, string[]>();
   const unmatched: string[] = [];
-  const sortedNotes = [...notes].sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime());
 
   for (const photo of photos) {
-    let best: { noteId: string; dist: number } | null = null;
-    for (const note of sortedNotes) {
+    let bestDist = Infinity;
+    let bestNoteId: string | null = null;
+    let tied = false;
+    for (const note of notes) {
       const dist = Math.abs(photo.effectiveTime.getTime() - note.recordedAt.getTime());
-      if (dist <= WINDOW_MS && (best === null || dist < best.dist)) {
-        best = { noteId: note.id, dist };
+      if (dist > WINDOW_MS) continue;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestNoteId = note.id;
+        tied = false;
+      } else if (dist === bestDist) {
+        tied = true; // gleicher Abstand zu einer weiteren Notiz → mehrdeutig
       }
     }
-    if (best) {
-      const list = byNote.get(best.noteId) ?? [];
+    if (bestNoteId !== null && !tied) {
+      const list = byNote.get(bestNoteId) ?? [];
       list.push(photo.id);
-      byNote.set(best.noteId, list);
+      byNote.set(bestNoteId, list);
     } else {
-      unmatched.push(photo.id);
+      unmatched.push(photo.id); // mehrdeutig oder außerhalb des Fensters
     }
   }
   return { byNote, unmatched };
 }
 ```
-(Note: iterating `sortedNotes` with strict `dist < best.dist` means an exact tie keeps the earlier note — deterministic.)
 
 - [ ] **Step 5: Run → PASS (5 tests). Commit:**
 ```bash
@@ -289,6 +296,16 @@ export async function loadReportInputs(projectId: string) {
     prisma.photo.findMany({ where: { projectId } }),
   ]);
   return { project, notes, photos };
+}
+
+/** Anzeigename des/der Ersteller:in fürs PDF-Deckblatt (Name → E-Mail → undefined). */
+export async function getCreatorLabel(createdById: string | null): Promise<string | undefined> {
+  if (!createdById) return undefined;
+  const u = await prisma.user.findUnique({
+    where: { id: createdById },
+    select: { name: true, email: true },
+  });
+  return u?.name ?? u?.email ?? undefined;
 }
 ```
 
@@ -543,8 +560,13 @@ async function seed() {
   const note = await prisma.note.create({
     data: { projectId: project.id, audioUrl: "k", transcript: "Riss in der Wand", transcriptStatus: "done", recordedAt: new Date("2026-06-01T09:00:00Z") },
   });
-  const photoKey = `projects/${project.id}/photos/p1.jpg`;
-  await storage.put(photoKey, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), "image/jpeg"); // jpeg-ish
+  const photoKey = `projects/${project.id}/photos/p1.png`;
+  // Echtes 1×1-PNG, damit sharp dekodieren kann (sonst würde das Foto übersprungen).
+  const onePxPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await storage.put(photoKey, onePxPng, "image/png");
   await prisma.photo.create({
     data: { projectId: project.id, fileUrl: photoKey, clientCapturedAt: new Date("2026-06-01T09:01:00Z") },
   });
@@ -597,15 +619,34 @@ describe("runGenerateReport", () => {
     const reloaded = await prisma.report.findUnique({ where: { id: report.id } });
     expect(reloaded?.status).toBe("failed");
   });
+
+  it("throws (and marks failed) when notes exist but none has a usable transcript", async () => {
+    const org = await prisma.organization.create({ data: { name: "B" } });
+    const project = await prisma.project.create({ data: { orgId: org.id, name: "Pending" } });
+    await prisma.note.create({
+      data: { projectId: project.id, audioUrl: "k", transcript: null, transcriptStatus: "pending", recordedAt: new Date() },
+    });
+    const report = await prisma.report.create({ data: { projectId: project.id, label: "E", status: "pending" } });
+    await expect(
+      runGenerateReport(report.id, { storage, docGenerator: new FakeDocGenerator(), now: new Date() }),
+    ).rejects.toThrow();
+    expect((await prisma.report.findUnique({ where: { id: report.id } }))?.status).toBe("failed");
+  });
 });
 ```
 
 - [ ] **Step 2: Run → FAIL.**
 
-- [ ] **Step 3: Implement `generate-report.ts`**
+- [ ] **Step 3: Implement `generate-report.ts`** (`pnpm add sharp -w` für robuste Bild-Normalisierung)
 ```ts
-import { extname } from "node:path";
-import { getReportById, loadReportInputs, setReportResult, setReportStatus } from "./reports.internal";
+import sharp from "sharp";
+import {
+  getCreatorLabel,
+  getReportById,
+  loadReportInputs,
+  setReportResult,
+  setReportStatus,
+} from "./reports.internal";
 import { matchPhotosToNotes } from "./photo-matching";
 import { renderReportPdf } from "@/server/pdf/render-report";
 import type { RenderFinding } from "@/server/pdf/report-document";
@@ -614,17 +655,22 @@ import type { ObjectStorage } from "@/server/storage/object-storage";
 
 export type GenerateDeps = { storage: ObjectStorage; docGenerator: DocGenerator; now: Date };
 
-const MIME_BY_EXT: Record<string, string> = {
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".heic": "image/heic",
-};
+function hasUsableTranscript(n: { transcript: string | null; transcriptStatus: string }): boolean {
+  return n.transcriptStatus === "done" && !!n.transcript && n.transcript.trim().length > 0;
+}
 
-function dataUri(buf: Buffer, key: string): string {
-  const mime = MIME_BY_EXT[extname(key).toLowerCase()] ?? "image/jpeg";
-  return `data:${mime};base64,${buf.toString("base64")}`;
+/**
+ * Normalisiert beliebige Foto-Bytes nach JPEG (react-pdf rendert JPEG/PNG zuverlässig,
+ * HEIC/WebP nicht). Schlägt das Dekodieren fehl (z. B. HEIC ohne libheif), wird das Foto
+ * übersprungen (null) statt das PDF zu brechen.
+ */
+async function toJpegDataUri(buf: Buffer): Promise<string | null> {
+  try {
+    const jpeg = await sharp(buf).rotate().jpeg({ quality: 80 }).toBuffer();
+    return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
@@ -635,29 +681,38 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
     const inputs = await loadReportInputs(report.projectId);
     if (!inputs) throw new Error(`Project ${report.projectId} not found`);
     const { project, notes, photos } = inputs;
-    if (notes.length === 0) throw new Error("Leeres Projekt: keine Notizen zum Exportieren.");
 
-    // 1) LLM: strukturierte Findings (1 pro Notiz)
+    // Nur Notizen mit fertigem, nicht-leerem Transkript fließen ein.
+    const usableNotes = notes.filter(hasUsableTranscript);
+    if (usableNotes.length === 0) {
+      throw new Error("Keine nutzbaren Transkripte: Export nicht möglich (Transkription unvollständig oder leer).");
+    }
+
+    // 1) LLM: strukturierte Findings (1 pro nutzbarer Notiz)
     const content = await deps.docGenerator.generate({
       projectName: project.name,
-      notes: notes.map((n) => ({ id: n.id, transcript: n.transcript ?? "" })),
+      notes: usableNotes.map((n) => ({ id: n.id, transcript: n.transcript! })),
     });
 
-    // 2) Foto-Zuordnung (deterministisch, ±2 Min)
+    // 2) Foto-Zuordnung (deterministisch, ±2 Min) gegen die nutzbaren Notizen
+    const effectiveTime = (p: (typeof photos)[number]) => p.exifTakenAt ?? p.clientCapturedAt;
     const match = matchPhotosToNotes(
-      notes.map((n) => ({ id: n.id, recordedAt: n.recordedAt })),
-      photos.map((p) => ({ id: p.id, effectiveTime: p.exifTakenAt ?? p.clientCapturedAt })),
+      usableNotes.map((n) => ({ id: n.id, recordedAt: n.recordedAt })),
+      photos.map((p) => ({ id: p.id, effectiveTime: effectiveTime(p) })),
     );
-    const photoByKey = new Map(photos.map((p) => [p.id, p.fileUrl] as const));
+    const keyByPhoto = new Map(photos.map((p) => [p.id, p.fileUrl] as const));
 
-    // 3) Foto-Bytes als Data-URIs auflösen
-    const toDataUris = async (photoIds: string[]) =>
-      Promise.all(
-        photoIds.map(async (id) => {
-          const key = photoByKey.get(id)!;
-          return dataUri(await deps.storage.read(key), key);
-        }),
-      );
+    // 3) Foto-Bytes laden + nach JPEG normalisieren (nicht dekodierbare überspringen)
+    const skippedPhotos: string[] = [];
+    const toDataUris = async (photoIds: string[]) => {
+      const uris: string[] = [];
+      for (const id of photoIds) {
+        const uri = await toJpegDataUri(await deps.storage.read(keyByPhoto.get(id)!));
+        if (uri) uris.push(uri);
+        else skippedPhotos.push(id);
+      }
+      return uris;
+    };
 
     const findings: RenderFinding[] = [];
     let i = 1;
@@ -672,12 +727,18 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
     }
     const appendixPhotos = await toDataUris(match.unmatched);
 
-    // 4) PDF rendern + speichern
+    // 4) PDF rendern + speichern (Begehungsdatum = früheste nutzbare Notiz; Autor = Ersteller)
+    const walkthrough = usableNotes.reduce(
+      (min, n) => (n.recordedAt < min ? n.recordedAt : min),
+      usableNotes[0].recordedAt,
+    );
+    const author = await getCreatorLabel(report.createdById);
     const pdf = await renderReportPdf({
       projectName: project.name,
       address: project.address ?? undefined,
       projectNo: project.projectNo ?? undefined,
-      dateLabel: deps.now.toLocaleDateString("de-AT"),
+      dateLabel: walkthrough.toLocaleDateString("de-AT"),
+      author,
       intro: content.intro,
       findings,
       appendixPhotos,
@@ -685,7 +746,21 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
     const pdfKey = `projects/${project.id}/reports/${reportId}.pdf`;
     await deps.storage.put(pdfKey, pdf, "application/pdf");
 
-    return await setReportResult(reportId, { pdfUrl: pdfKey, reportJson: content });
+    // 5) Audit-/Reproduzierbarkeits-JSON: LLM-Content + Foto-Zuordnung + Zeitstempel
+    const artifact = {
+      content,
+      matching: {
+        byNote: Object.fromEntries(match.byNote),
+        unmatched: match.unmatched,
+        skipped: skippedPhotos,
+      },
+      photoEffectiveTimes: Object.fromEntries(
+        photos.map((p) => [p.id, effectiveTime(p).toISOString()]),
+      ),
+      walkthroughDate: walkthrough.toISOString(),
+      generatedAt: deps.now.toISOString(),
+    };
+    return await setReportResult(reportId, { pdfUrl: pdfKey, reportJson: artifact });
   } catch (err) {
     await setReportStatus(reportId, "failed");
     throw err;
@@ -695,8 +770,8 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
 
 - [ ] **Step 4: Run → PASS (3 tests). Commit:**
 ```bash
-git add src/server/reports/generate-report.ts src/server/reports/generate-report.test.ts
-git commit -m "feat: generate-report job logic (docgen + matching + pdf) with failure handling (TDD)"
+git add src/server/reports/generate-report.ts src/server/reports/generate-report.test.ts src/server/reports/reports.internal.ts package.json pnpm-lock.yaml
+git commit -m "feat: generate-report job logic (docgen + matching + pdf, sharp-normalized photos) with failure handling (TDD)"
 ```
 
 ---
@@ -744,10 +819,20 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const project = await getProject(session.orgId, projectId);
   if (!project) return new NextResponse("Not found", { status: 404 });
 
-  // Leeres Projekt blocken (Spec §8) statt leeres PDF zu erzeugen.
+  // Nur exportieren, wenn mindestens ein fertiges, nicht-leeres Transkript vorliegt
+  // (Spec §8: leeres Projekt blocken; zusätzlich: pending/leere Transkripte vermeiden).
   const notes = await listNotes(session.orgId, projectId);
-  if (notes.length === 0) {
-    return NextResponse.json({ error: "Keine Sprachnotizen vorhanden – nichts zu exportieren." }, { status: 400 });
+  const usable = notes.filter((n) => n.transcriptStatus === "done" && n.transcript && n.transcript.trim().length > 0);
+  if (usable.length === 0) {
+    const pending = notes.some((n) => n.transcriptStatus === "pending");
+    return NextResponse.json(
+      {
+        error: pending
+          ? "Transkription läuft noch – bitte warten, bis die Notizen fertig transkribiert sind."
+          : "Keine nutzbaren Sprachnotizen vorhanden – nichts zu exportieren.",
+      },
+      { status: 400 },
+    );
   }
 
   const label = `Export ${new Date().toLocaleDateString("de-AT")}`;
@@ -766,10 +851,37 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 }
 ```
 
+- [ ] **Step 3b: Report-Retry-Route** `src/app/api/projects/[id]/reports/[reportId]/retry/route.ts` (für fehlgeschlagene Exporte; org + projectId geprüft, Enqueue-Recovery):
+```ts
+import { NextResponse } from "next/server";
+import { requireSession } from "@/server/auth/require-session";
+import { getReportForOrg, setReportStatus } from "@/server/reports/reports.service";
+import { inngest } from "@/inngest/client";
+
+export async function POST(_req: Request, { params }: { params: Promise<{ id: string; reportId: string }> }) {
+  const session = await requireSession();
+  const { id, reportId } = await params;
+  const report = await getReportForOrg(session.orgId, reportId);
+  if (!report || report.projectId !== id) return new NextResponse("Not found", { status: 404 });
+
+  await setReportStatus(reportId, "pending");
+  try {
+    await inngest.send({ name: "report/requested", data: { reportId } });
+  } catch {
+    const failed = await setReportStatus(reportId, "failed");
+    return NextResponse.json(
+      { id: failed.id, status: failed.status, error: "Export konnte nicht gestartet werden" },
+      { status: 502 },
+    );
+  }
+  return NextResponse.json({ id: reportId, status: "pending" });
+}
+```
+
 - [ ] **Step 4: `pnpm exec tsc --noEmit` (clean), `pnpm test` (alle grün). Commit:**
 ```bash
 git add src/inngest "src/app/api/projects"
-git commit -m "feat: generateReport inngest function and export trigger route (empty-project guard + enqueue recovery)"
+git commit -m "feat: generateReport inngest function, export trigger + retry routes (guards + enqueue recovery)"
 ```
 
 ---
@@ -815,8 +927,13 @@ export function ExportButton({ projectId }: { projectId: string }) {
 }
 ```
 
-- [ ] **Step 2: `reports-list.tsx`**
+- [ ] **Step 2: `reports-list.tsx`** (Client-Komponente: pollt solange ein Report `pending` ist, Retry für `failed`)
 ```tsx
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
 export type ReportView = {
   id: string;
   label: string;
@@ -825,23 +942,53 @@ export type ReportView = {
   generatedAt: string;
 };
 
-export function ReportsList({ reports }: { reports: ReportView[] }) {
+export function ReportsList({ projectId, reports }: { projectId: string; reports: ReportView[] }) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const anyPending = reports.some((r) => r.status === "pending");
+
+  // Solange ein Export läuft: regelmäßig aktualisieren, bis er fertig/fehlgeschlagen ist.
+  useEffect(() => {
+    if (!anyPending) return;
+    const t = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(t);
+  }, [anyPending, router]);
+
+  async function retry(reportId: string) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/reports/${reportId}/retry`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Erneuter Export fehlgeschlagen");
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erneuter Export fehlgeschlagen");
+    }
+  }
+
   if (reports.length === 0) return <p className="text-gray-500">Noch keine Exporte.</p>;
   return (
-    <ul className="flex flex-col gap-2">
-      {reports.map((r) => (
-        <li key={r.id} className="flex items-center gap-3 text-sm border rounded p-2">
-          <span className="text-gray-500">{new Date(r.generatedAt).toLocaleString("de-AT")}</span>
-          <span className="font-medium">{r.label}</span>
-          <StatusBadge status={r.status} />
-          {r.status === "done" && r.pdfKey && (
-            <a href={`/api/files/${r.pdfKey}`} className="text-cobalt underline ml-auto" target="_blank" rel="noreferrer">
-              PDF herunterladen
-            </a>
-          )}
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-2">
+        {reports.map((r) => (
+          <li key={r.id} className="flex items-center gap-3 text-sm border rounded p-2">
+            <span className="text-gray-500">{new Date(r.generatedAt).toLocaleString("de-AT")}</span>
+            <span className="font-medium">{r.label}</span>
+            <StatusBadge status={r.status} />
+            {r.status === "done" && r.pdfKey && (
+              <a href={`/api/files/${r.pdfKey}`} className="text-cobalt underline ml-auto" target="_blank" rel="noreferrer">
+                PDF herunterladen
+              </a>
+            )}
+            {r.status === "failed" && (
+              <button onClick={() => retry(r.id)} className="text-cobalt underline ml-auto">
+                Erneut versuchen
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {error && <p className="text-red-600 text-sm">{error}</p>}
+    </div>
   );
 }
 
@@ -877,6 +1024,7 @@ import { ReportsList } from "./reports-list";
   <h2 className="text-lg font-medium">Dokumentation</h2>
   <ExportButton projectId={project.id} />
   <ReportsList
+    projectId={project.id}
     reports={reports.map((r) => ({
       id: r.id,
       label: r.label,
@@ -909,7 +1057,9 @@ git commit -m "feat: export button and reports list (download) on project detail
 
 ## Self-Review-Notiz (für Reviewer dieses Plans)
 
-- **Spec-Abdeckung:** §6b Doku-Generierung (Claude, Structured Output, kein Erfinden, Prompt Caching); §7 PDF (Deckblatt mit Markenfarben, durchnummerierte Feststellungen mit zugeordneten Fotos, Anhang-Galerie, Hinweis „vor Versand prüfen"); Foto-Zuordnung deterministisch ±2 Min im Code; §8 Fehlerbehandlung (Job failed+rethrow→Inngest-Retry; Enqueue-Fehler→failed+502; leeres Projekt geblockt). Mehrere Exporte pro Projekt (Report-Liste, versioniert via generatedAt + reportJson für Audit).
+- **Spec-Abdeckung:** §6b Doku-Generierung (Claude, Structured Output, kein Erfinden, Prompt Caching); §7 PDF (Deckblatt mit Markenfarben + **Begehungsdatum** (früheste nutzbare Notiz) + **Autor** (Ersteller), durchnummerierte Feststellungen mit zugeordneten Fotos, Anhang-Galerie, Hinweis „vor Versand prüfen"); Foto-Zuordnung deterministisch ±2 Min im Code, **mehrdeutige Ties → Anhang** (nicht früheste Notiz); §8 Fehlerbehandlung (Job failed+rethrow→Inngest-Retry; Enqueue-Fehler→failed+502; leeres Projekt UND „keine nutzbaren Transkripte / pending" geblockt). **Status-Polling** der Report-Liste solange pending + **Retry** für failed (§ UI-Anforderung). Mehrere Exporte pro Projekt.
+- **Robustheit (aus Review):** Export nur mit ≥1 fertigem, nicht-leerem Transkript (pending/leer ausgeschlossen, in Route + Job); Fotos vor PDF-Render via **sharp → JPEG** normalisiert (HEIC/WebP-sicher), nicht dekodierbare werden übersprungen (kein PDF-Bruch) und in `reportJson.matching.skipped` vermerkt.
+- **`reportJson` = Audit-Artefakt:** `{ content (LLM), matching: {byNote, unmatched, skipped}, photoEffectiveTimes, walkthroughDate, generatedAt }` — reproduzierbar/auditierbar inkl. Foto-Zuordnung + effektiver Zeitstempel.
 - **Bewusst NICHT in Plan 3:** PWA/Service-Worker + E2E-Playwright (Plan 4); Status-Lebenszyklus/Freigabe (Spec: deferred).
 - **Testbarkeit:** LLM hinter `DocGenerator` (Fake), Renderer rein, Job mit DI (storage/docgen/now) → alle Kernpfade ohne Key/Netz/Browser testbar. Echte Claude-Generierung nur in Task 7 (Key nötig).
 - **Typkonsistenz:** `ReportContent`/`Finding` (docgen-Ausgabe = `Report.reportJson`), `matchPhotosToNotes(notes, photos) → {byNote, unmatched}`, `RenderInput`/`RenderFinding` (Renderer-Eingabe), `runGenerateReport(reportId, {storage, docGenerator, now})`, Report-Service-Signaturen. Storage-Key `projects/<projectId>/reports/<reportId>.pdf` (von der bestehenden `/api/files`-Route org-geprüft ausgeliefert).
