@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
-    "setup:whisper": "bash scripts/whisper-setup.sh"
+    "setup:whisper": "bash scripts/whisper-setup.sh",
+    "dev:whisper": ".venv-whisper/bin/python scripts/whisper_server.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",

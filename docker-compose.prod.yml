@@ -24,8 +24,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # service_healthy (nicht nur started): der Worker lauscht erst NACH dem Modell-Laden.
+      # So nimmt die App keine Notizen an, bevor die Transkription bereit ist.
       whisper:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test:
