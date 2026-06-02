@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ReportContent } from "@/server/reports/report-content";
+import { reportContentSchema, type ReportContent } from "@/server/reports/report-content";
 import type { DocGenerator, DocGenInput } from "./doc-generator";
 
 /**
@@ -137,7 +137,12 @@ export class ClaudeDocGenerator implements DocGenerator {
       );
     }
 
-    // The SDK exposes tool input as a parsed object – cast directly.
-    return toolUseBlock.input as ReportContent;
+    // Laufzeit-Validierung: eine fehlerhafte/unerwartete Struktur wirft hier (→ Report
+    // failed + Retry) statt still ein kaputtes PDF zu erzeugen.
+    const parsed = reportContentSchema.safeParse(toolUseBlock.input);
+    if (!parsed.success) {
+      throw new Error(`ClaudeDocGenerator: ungültige Tool-Ausgabe: ${parsed.error.message}`);
+    }
+    return parsed.data as ReportContent;
   }
 }
