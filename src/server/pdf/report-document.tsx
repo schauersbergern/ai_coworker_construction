@@ -60,6 +60,8 @@ export function ReportDocument(props: RenderInput) {
             {f.photos.length > 0 && (
               <View style={styles.photoRow}>
                 {f.photos.map((src, i) => (
+                  // react-pdf <Image> hat kein alt-Attribut wie HTML — Regel hier nicht anwendbar
+                  // eslint-disable-next-line jsx-a11y/alt-text
                   <Image key={i} src={src} style={styles.photo} />
                 ))}
               </View>
@@ -72,6 +74,8 @@ export function ReportDocument(props: RenderInput) {
             <Text style={styles.sectionTitle}>Anhang: weitere Fotos</Text>
             <View style={styles.photoRow}>
               {props.appendixPhotos.map((src, i) => (
+                // react-pdf <Image> hat kein alt-Attribut wie HTML — Regel hier nicht anwendbar
+                // eslint-disable-next-line jsx-a11y/alt-text
                 <Image key={i} src={src} style={styles.photo} />
               ))}
             </View>
