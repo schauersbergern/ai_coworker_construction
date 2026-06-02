@@ -25,22 +25,36 @@ export function NotesList({ projectId, notes }: { projectId: string; notes: Note
 function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
   const [text, setText] = useState(note.transcript ?? "");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   async function save() {
     setSaving(true);
-    await fetch(`/api/projects/${projectId}/notes/${note.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transcript: text }),
-    });
-    setSaving(false);
-    router.refresh();
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/notes/${note.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: text }),
+      });
+      if (!res.ok) throw new Error("Speichern fehlgeschlagen");
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Speichern fehlgeschlagen");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function retry() {
-    await fetch(`/api/projects/${projectId}/notes/${note.id}/retry`, { method: "POST" });
-    router.refresh();
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/notes/${note.id}/retry`, { method: "POST" });
+      if (!res.ok) throw new Error("Erneuter Versuch fehlgeschlagen");
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erneuter Versuch fehlgeschlagen");
+    }
   }
 
   return (
@@ -62,6 +76,7 @@ function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
       <button onClick={save} disabled={saving} className="self-start bg-cobalt text-white rounded px-3 py-1 text-sm disabled:opacity-50">
         {saving ? "Speichern…" : "Transkript speichern"}
       </button>
+      {error && <p className="text-red-600 text-sm">{error}</p>}
     </li>
   );
 }

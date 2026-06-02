@@ -14,7 +14,8 @@
     "db:seed": "prisma db seed",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest"
+    "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
+    "setup:whisper": "bash scripts/whisper-setup.sh"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",
