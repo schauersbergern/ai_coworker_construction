@@ -18,6 +18,7 @@
     "setup:whisper": "bash scripts/whisper-setup.sh"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
     "@auth/prisma-adapter": "^2.11.2",
     "@prisma/client": "^6.19.3",
     "exifr": "^7.1.3",
