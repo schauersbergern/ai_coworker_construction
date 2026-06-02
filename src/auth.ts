@@ -12,6 +12,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      // Verknüpft den Google-Login mit einem evtl. bereits vorhandenen User gleicher
+      // E-Mail (z. B. aus altem Seed/Magic-Link), statt mit OAuthAccountNotLinked zu
+      // scheitern. Sicher, weil Google die E-Mail verifiziert + ALLOWED_EMAILS gatet.
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
   callbacks: {
