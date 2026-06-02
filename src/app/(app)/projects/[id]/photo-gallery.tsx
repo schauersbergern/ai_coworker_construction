@@ -1,15 +1,140 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 export type PhotoView = { id: string; fileKey: string };
 
+/* eslint-disable @next/next/no-img-element -- Fotos laufen über die authentifizierte /api/files-Route */
+
 export function PhotoGallery({ photos }: { photos: PhotoView[] }) {
-  if (photos.length === 0) return <p className="text-gray-500">Noch keine Fotos.</p>;
+  const [open, setOpen] = useState<number | null>(null);
+
+  if (photos.length === 0) return <p className="text-muted text-sm">Noch keine Fotos.</p>;
+
   return (
-    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-      {photos.map((p) => (
-        // TODO(plan-3+): next/image erwägen; Fotos laufen über die authentifizierte
-        // /api/files-Route, daher hier vorerst bewusst <img>.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img key={p.id} src={`/api/files/${p.fileKey}`} alt="" className="aspect-square object-cover rounded border" />
-      ))}
+    <>
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+        {photos.map((p, i) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setOpen(i)}
+            className="aspect-square overflow-hidden rounded-lg border border-line group"
+          >
+            <img
+              src={`/api/files/${p.fileKey}`}
+              alt=""
+              className="w-full h-full object-cover transition-transform group-hover:scale-105"
+            />
+          </button>
+        ))}
+      </div>
+
+      {open !== null && (
+        <Lightbox
+          photos={photos}
+          index={open}
+          onClose={() => setOpen(null)}
+          onNav={(d) => setOpen((i) => (i === null ? i : (i + d + photos.length) % photos.length))}
+        />
+      )}
+    </>
+  );
+}
+
+function Lightbox({
+  photos,
+  index,
+  onClose,
+  onNav,
+}: {
+  photos: PhotoView[];
+  index: number;
+  onClose: () => void;
+  onNav: (delta: number) => void;
+}) {
+  const [zoomed, setZoomed] = useState(false);
+  // Beim Bildwechsel Zoom zurücksetzen — React-Muster: State während des Renders
+  // anpassen (kein useEffect → kein set-state-in-effect).
+  const [prevIndex, setPrevIndex] = useState(index);
+  if (index !== prevIndex) {
+    setPrevIndex(index);
+    setZoomed(false);
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight") onNav(1);
+      else if (e.key === "ArrowLeft") onNav(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose, onNav]);
+
+  const src = `/api/files/${photos[index].fileKey}`;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col" onClick={onClose}>
+      <div
+        className="flex items-center justify-between px-4 py-3 text-white/80 text-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="font-mono">
+          {index + 1} / {photos.length}
+        </span>
+        <button onClick={onClose} className="rounded-md px-3 py-1 hover:bg-white/10">
+          ✕ Schließen
+        </button>
+      </div>
+
+      {/* Scroll-/Pinch-Bereich: zoomed → Originalgröße + Pan; touch-action erlaubt Pinch auf Mobile */}
+      <div
+        className="flex-1 overflow-auto grid place-items-center"
+        style={{ touchAction: "pinch-zoom" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={src}
+          alt=""
+          onClick={() => setZoomed((z) => !z)}
+          className={
+            zoomed
+              ? "max-w-none cursor-zoom-out p-2"
+              : "max-h-[82vh] max-w-[94vw] object-contain cursor-zoom-in select-none"
+          }
+        />
+      </div>
+
+      {photos.length > 1 && (
+        <>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onNav(-1);
+            }}
+            className="absolute left-2 top-1/2 -translate-y-1/2 text-white/80 text-3xl px-3 py-2 rounded-md hover:bg-white/10"
+            aria-label="Vorheriges Foto"
+          >
+            ‹
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onNav(1);
+            }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-white/80 text-3xl px-3 py-2 rounded-md hover:bg-white/10"
+            aria-label="Nächstes Foto"
+          >
+            ›
+          </button>
+        </>
+      )}
     </div>
   );
 }
