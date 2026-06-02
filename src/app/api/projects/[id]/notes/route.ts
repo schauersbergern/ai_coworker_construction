@@ -25,7 +25,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const recordedAtRaw = form.get("recordedAt");
   if (!(file instanceof File)) return NextResponse.json({ error: "audio fehlt" }, { status: 400 });
 
-  const ext = ALLOWED.get(file.type);
+  // MediaRecorder liefert z. B. "audio/webm;codecs=opus" — Codec-Suffix für den
+  // Typ-Abgleich abschneiden.
+  const mimeType = file.type.split(";")[0].trim().toLowerCase();
+  const ext = ALLOWED.get(mimeType);
   if (!ext) return NextResponse.json({ error: `Audiotyp ${file.type} nicht unterstützt` }, { status: 400 });
 
   // Größenlimit VOR dem Puffern in den Speicher prüfen.

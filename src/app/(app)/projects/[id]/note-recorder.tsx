@@ -74,15 +74,17 @@ export function NoteRecorder({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         {!recording ? (
-          <button onClick={start} disabled={busy} className="bg-cobalt text-white rounded p-2 disabled:opacity-50">
+          <button onClick={start} disabled={busy} className="btn btn-primary">
             🎤 Notiz aufnehmen
           </button>
         ) : (
-          <button onClick={stop} className="bg-red-600 text-white rounded p-2">■ Stopp</button>
+          <button onClick={stop} className="btn btn-danger">
+            <span className="inline-block w-2.5 h-2.5 bg-white rounded-[2px] animate-pulse" /> Aufnahme stoppen
+          </button>
         )}
-        {busy && <span className="text-gray-500 self-center">lädt…</span>}
+        {busy && <span className="text-muted text-sm">lädt…</span>}
       </div>
       {error && <p className="text-red-600 text-sm">{error}</p>}
     </div>
