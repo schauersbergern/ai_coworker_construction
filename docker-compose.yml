@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: baudoku
+      POSTGRES_PASSWORD: baudoku
+      POSTGRES_DB: baudoku
+    ports:
+      - "5432:5432"
+    volumes:
+      - baudoku_pgdata:/var/lib/postgresql/data
+
+  mail:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  baudoku_pgdata:
