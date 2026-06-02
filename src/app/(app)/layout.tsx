@@ -11,10 +11,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="mx-auto max-w-5xl px-5 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="inline-grid place-items-center w-8 h-8 rounded-lg bg-cobalt text-white font-display font-extrabold">
-              b
+              m
             </span>
             <span className="font-display font-extrabold text-lg leading-none">
-              Baudoku
+              Manibase
               <span className="text-cobalt">.</span>
             </span>
           </Link>

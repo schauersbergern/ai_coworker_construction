@@ -6,10 +6,10 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5 justify-center mb-6">
           <span className="inline-grid place-items-center w-9 h-9 rounded-lg bg-cobalt text-white font-display font-extrabold">
-            b
+            m
           </span>
           <span className="font-display font-extrabold text-2xl">
-            Baudoku<span className="text-cobalt">.</span>
+            Manibase<span className="text-cobalt">.</span>
           </span>
         </div>
 
