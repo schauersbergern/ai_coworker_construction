@@ -85,7 +85,8 @@ certbot ergänzt den `listen 443 ssl`-Block + Redirect automatisch.
 cd /home/deploy/ai_coworker_construction
 docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml ps
-curl -fsS https://employees.aicoreinfra.de/health   # -> {"status":"ok"}
+curl -fsS https://employees.aicoreinfra.de/health   # Liveness -> {"status":"ok"}
+curl -fsS https://employees.aicoreinfra.de/ready    # Readiness (DB) -> {"status":"ready"}
 ```
 Erste Begehung anlegen: Pilot-Org + Nutzer provisionieren (Allowlist!):
 ```bash

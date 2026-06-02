@@ -50,16 +50,16 @@ jobs:
 
             docker compose -f docker-compose.prod.yml ps
 
-      - name: Public smoke test (/health über nginx/TLS)
+      - name: Public smoke test (/ready über nginx/TLS — App + DB erreichbar)
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if body=$(curl -fsS --max-time 10 https://employees.aicoreinfra.de/health); then
+            if body=$(curl -fsS --max-time 10 https://employees.aicoreinfra.de/ready); then
               echo "Response: $body"
-              echo "$body" | grep -q '"status":"ok"' && exit 0
+              echo "$body" | grep -q '"status":"ready"' && exit 0
             fi
             echo "attempt $attempt: noch nicht bereit, warte..."
             sleep 8
           done
-          echo "Smoke-Test fehlgeschlagen: /health lieferte nicht status=ok innerhalb ~80s" >&2
+          echo "Smoke-Test fehlgeschlagen: /ready lieferte nicht status=ready innerhalb ~80s" >&2
           exit 1

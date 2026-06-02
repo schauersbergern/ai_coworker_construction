@@ -3,7 +3,8 @@
 # ---- Builder: install deps + build Next.js ----
 FROM node:20-bookworm AS builder
 WORKDIR /app
-RUN corepack enable
+# pnpm-Version aus package.json#packageManager fest aktivieren (kein Laufzeit-Download/Drift)
+RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 # Lockfile-getreue Installation
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY prisma ./prisma
@@ -15,7 +16,6 @@ RUN pnpm prisma generate && pnpm build
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN corepack enable
 
 # Systemabhängigkeiten für die Transkription (faster-whisper braucht python + ffmpeg)
 RUN apt-get update \
@@ -32,5 +32,7 @@ RUN python3 -m venv "$WHISPER_VENV" \
 COPY --from=builder /app ./
 
 EXPOSE 3000
-# Migrationen anwenden, dann Server starten. Schlägt die Migration fehl, startet die App nicht.
-CMD ["sh", "-c", "pnpm prisma migrate deploy && pnpm start"]
+# Migrationen anwenden, dann Server starten — über die lokalen Binaries (kein pnpm/corepack
+# im Laufzeitpfad → keine Versionsauflösung/kein Download beim Containerstart). Schlägt die
+# Migration fehl, startet die App nicht.
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node_modules/.bin/next start"]
