@@ -10,7 +10,7 @@ Die App-Architektur:
 - Ein `db`-Container (Postgres 16), isoliert vom geteilten Host-Postgres.
 - **Inngest Cloud (Free)** für die Hintergrundjobs (kein Extra-Container) — ruft die
   öffentliche `/api/inngest`-Route auf.
-- E-Mail (Magic-Link) über vorhandenen SMTP-Zugang.
+- Login über **Google OAuth**; Zugriff via `ALLOWED_EMAILS` (kommaseparierte Allowlist), kein E-Mail-Versand nötig.
 
 ---
 
@@ -30,6 +30,15 @@ Kostenlosen Account auf inngest.com anlegen, eine App „baudoku" erstellen, **E
 **Signing Key** kopieren (kommen in die server-seitige `.env`). Nach dem ersten Deploy die
 Sync-URL `https://employees.aicoreinfra.de/api/inngest` im Inngest-Dashboard registrieren.
 
+### 3b. Google OAuth  *(nur du)*
+Login läuft über Google. In der **Google Cloud Console** → APIs & Services → Credentials →
+**OAuth client ID (Web application)** anlegen:
+- **Authorized redirect URI:** `https://employees.aicoreinfra.de/api/auth/callback/google`
+- (Optional lokal: `http://localhost:3000/api/auth/callback/google`)
+
+Client-ID + Secret kommen in die server-seitige `.env`. Wer Zugriff bekommt, steuerst du über
+`ALLOWED_EMAILS` (kommaseparierte Google-Adressen) — kein Self-Signup, kein DB-Provisioning mehr.
+
 ### 4. Repo + .env auf dem Server
 ```bash
 ssh deploy@72.62.42.27
@@ -38,10 +47,11 @@ git clone https://github.com/schauersbergern/ai_coworker_construction.git
 cd ai_coworker_construction
 cp .env.production.example .env
 # .env mit echten Werten füllen (Secrets!):
-#   POSTGRES_PASSWORD   -> openssl rand -base64 24
-#   AUTH_SECRET         -> openssl rand -base64 32
-#   EMAIL_SERVER        -> dein SMTP (smtp://user:pass@host:587)
-#   ANTHROPIC_API_KEY   -> dein Claude-Key
+#   POSTGRES_PASSWORD       -> openssl rand -base64 24
+#   AUTH_SECRET             -> openssl rand -base64 32
+#   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET -> aus Schritt 3b
+#   ALLOWED_EMAILS          -> kommaseparierte Google-Adressen mit Zugriff
+#   ANTHROPIC_API_KEY       -> dein Claude-Key
 #   INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY -> aus Schritt 3
 nano .env
 ```
@@ -88,18 +98,17 @@ docker compose -f docker-compose.prod.yml ps
 curl -fsS https://employees.aicoreinfra.de/health   # Liveness -> {"status":"ok"}
 curl -fsS https://employees.aicoreinfra.de/ready    # Readiness (DB) -> {"status":"ready"}
 ```
-Erste Begehung anlegen: Pilot-Org + Nutzer provisionieren (Allowlist!):
-```bash
-docker compose -f docker-compose.prod.yml exec app \
-  sh -c 'SEED_USER_EMAIL="nikolaus.schauersberger@gmail.com" SEED_ORG_NAME="Pilot-Büro" pnpm db:seed'
-```
+Kein Seeding nötig: Beim **ersten Google-Login einer Adresse aus `ALLOWED_EMAILS`** wird die
+gemeinsame Pilot-Organisation automatisch angelegt und der/die Nutzer:in zugeordnet. Zugriff
+erweitern/entziehen = `ALLOWED_EMAILS` in der server-`.env` ändern + Container neu starten
+(`docker compose -f docker-compose.prod.yml up -d`).
 
 ---
 
 ## Laufender Betrieb (automatisch)
 Ab jetzt deployt **jeder Merge auf `main`** automatisch via `.github/workflows/deploy.yml`:
 `git reset --hard origin/main` → `docker compose -f docker-compose.prod.yml up -d --build` →
-Smoke-Test gegen `/health`. Manuell auslösbar über „Run workflow" (workflow_dispatch).
+Smoke-Test gegen `/ready`. Manuell auslösbar über „Run workflow" (workflow_dispatch).
 
 ## Hinweise
 - **Whisper-Modell** wird beim ersten Job in das `whisper_cache`-Volume geladen (einmalig, Netz nötig).
