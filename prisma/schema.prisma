@@ -12,6 +12,7 @@ model User {
   email          String    @unique
   emailVerified  DateTime?
   name           String?
+  image          String?
   orgId          String?
   organization   Organization? @relation(fields: [orgId], references: [id])
   accounts       Account[]
