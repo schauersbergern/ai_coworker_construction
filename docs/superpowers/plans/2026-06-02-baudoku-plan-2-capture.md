@@ -44,13 +44,14 @@
 
 - [ ] **Step 1: Env + gitignore**
 
-In `.env.example`, `.env`, `.env.test` ergänzen (Tests nutzen ein eigenes Verzeichnis):
+In `.env.example`, `.env` ergänzen:
 ```bash
 # .env / .env.example
 STORAGE_DIR="./storage"
 ```
+In **`.env.test` UND `.env.test.example`** ergänzen (Tests nutzen ein eigenes, ignoriertes Verzeichnis; das committed Example muss es ebenfalls enthalten, da ein frischer Checkout `.env.test` daraus bootstrappt):
 ```bash
-# .env.test
+# .env.test und .env.test.example
 STORAGE_DIR="./storage-test"
 ```
 In `.gitignore` ergänzen:
@@ -190,7 +191,7 @@ export type { ObjectStorage } from "./object-storage";
 
 - [ ] **Step 8: Commit**
 ```bash
-git add src/server/storage .env.example .gitignore
+git add src/server/storage .env.example .env.test.example .gitignore
 git commit -m "feat: local filesystem object-storage abstraction (TDD)"
 ```
 
@@ -230,7 +231,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
   const contentType = await storage.contentType(key);
   return new NextResponse(new Uint8Array(data), {
     status: 200,
-    headers: { "Content-Type": contentType, "Cache-Control": "private, max-age=3600" },
+    headers: {
+      "Content-Type": contentType,
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "private, max-age=3600",
+    },
   });
 }
 ```
@@ -277,15 +282,15 @@ import { functions } from "@/inngest/functions";
 export const { GET, POST, PUT } = serve({ client: inngest, functions });
 ```
 
-- [ ] **Step 5: Dev-Script** in `package.json` "scripts":
+- [ ] **Step 5: Dev-Script** in `package.json` "scripts" (das `inngest`-SDK liefert KEIN CLI-Binary — der Dev-Server kommt aus dem separaten `inngest-cli`-Paket via `npx`):
 ```json
-"dev:inngest": "inngest-cli dev -u http://localhost:3000/api/inngest"
+"dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest"
 ```
 (Inngest Dev-Server wird bei Bedarf separat gestartet: `pnpm dev:inngest`.)
 
 - [ ] **Step 6: Build-Check** `pnpm exec tsc --noEmit` (clean). Commit:
 ```bash
-git add src/inngest "src/app/api/inngest" package.json
+git add src/inngest "src/app/api/inngest" package.json pnpm-lock.yaml
 git commit -m "feat: inngest client, serve route, dev wiring"
 ```
 
@@ -363,6 +368,7 @@ echo "whisper venv ready at $VENV_DIR"
 ```bash
 WHISPER_VENV=".venv-whisper"
 WHISPER_MODEL="small"
+WHISPER_TIMEOUT_MS="120000"
 ```
 In `.gitignore`: `/.venv-whisper`.
 
@@ -381,23 +387,37 @@ export class LocalWhisperTranscriber implements Transcriber {
 
   transcribe(audioAbsPath: string): Promise<string> {
     const python = join(this.venvDir, "bin", "python");
+    const timeoutMs = Number(process.env.WHISPER_TIMEOUT_MS ?? 120_000);
     return new Promise((resolve, reject) => {
-      const proc = spawn(python, [this.scriptPath, audioAbsPath], {
-        env: process.env,
-      });
+      const proc = spawn(python, [this.scriptPath, audioAbsPath], { env: process.env });
       let out = "";
       let err = "";
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+      const timer = setTimeout(() => {
+        proc.kill("SIGKILL");
+        finish(() => reject(new Error(`whisper timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
       proc.stdout.on("data", (d) => (out += d.toString()));
       proc.stderr.on("data", (d) => (err += d.toString()));
-      proc.on("error", reject);
+      proc.on("error", (e) => finish(() => reject(e)));
       proc.on("close", (code) => {
-        if (code === 0) resolve(out.trim());
-        else reject(new Error(`whisper exited ${code}: ${err.trim()}`));
+        finish(() =>
+          code === 0
+            ? resolve(out.trim())
+            : reject(new Error(`whisper exited ${code}: ${err.trim()}`)),
+        );
       });
     });
   }
 }
 ```
+> Der Timeout (Default 120 s, via `WHISPER_TIMEOUT_MS` konfigurierbar) killt hängende Prozesse und liefert einen sauberen Fehler — so bleibt das Inngest-Retry-Verhalten vorhersehbar.
 
 - [ ] **Step 7: Build-Check** `pnpm exec tsc --noEmit` (clean). Commit:
 ```bash
@@ -687,6 +707,7 @@ const ALLOWED = new Map<string, string>([
   ["audio/ogg", "ogg"],
   ["audio/wav", "wav"],
 ]);
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
@@ -701,6 +722,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const ext = ALLOWED.get(file.type);
   if (!ext) return NextResponse.json({ error: `Audiotyp ${file.type} nicht unterstützt` }, { status: 400 });
+
+  // Größenlimit VOR dem Puffern in den Speicher prüfen.
+  if (file.size > MAX_AUDIO_BYTES) {
+    return NextResponse.json({ error: "Audio zu groß (max. 25 MB)" }, { status: 413 });
+  }
 
   const recordedAt = recordedAtRaw ? new Date(String(recordedAtRaw)) : new Date();
   if (Number.isNaN(recordedAt.getTime())) {
@@ -836,7 +862,7 @@ Run → PASS (2 tests).
 
 - [ ] **Step 6: Commit**
 ```bash
-git add src/server/photos
+git add src/server/photos package.json pnpm-lock.yaml
 git commit -m "feat: photo exif extraction and photos service (TDD)"
 ```
 
@@ -861,6 +887,7 @@ const ALLOWED = new Map<string, string>([
   ["image/heic", "heic"],
   ["image/webp", "webp"],
 ]);
+const MAX_PHOTO_BYTES = 15 * 1024 * 1024; // 15 MB
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
@@ -875,6 +902,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const ext = ALLOWED.get(file.type);
   if (!ext) return NextResponse.json({ error: `Bildtyp ${file.type} nicht unterstützt` }, { status: 400 });
+
+  // Größenlimit VOR dem Puffern in den Speicher prüfen.
+  if (file.size > MAX_PHOTO_BYTES) {
+    return NextResponse.json({ error: "Foto zu groß (max. 15 MB)" }, { status: 413 });
+  }
 
   const clientCapturedAt = capturedRaw ? new Date(String(capturedRaw)) : new Date();
   if (Number.isNaN(clientCapturedAt.getTime())) {
@@ -930,6 +962,14 @@ export async function loadProjectDetail(projectId: string) {
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+// Safari/iOS unterstützt kein audio/webm. Den ersten unterstützten Typ wählen;
+// leerer String → der Browser wählt selbst einen Default.
+const MIME_CANDIDATES = ["audio/webm", "audio/mp4", "audio/ogg"];
+function pickSupportedMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  return MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? "";
+}
+
 export function NoteRecorder({ projectId }: { projectId: string }) {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -941,10 +981,12 @@ export function NoteRecorder({ projectId }: { projectId: string }) {
   async function start() {
     setError(null);
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    const mimeType = pickSupportedMimeType();
+    const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     chunksRef.current = [];
     rec.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
-    rec.onstop = () => upload(new Blob(chunksRef.current, { type: "audio/webm" }));
+    rec.onstop = () =>
+      upload(new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "audio/webm" }));
     rec.start();
     mediaRef.current = rec;
     setRecording(true);
@@ -961,7 +1003,8 @@ export function NoteRecorder({ projectId }: { projectId: string }) {
     setError(null);
     try {
       const fd = new FormData();
-      fd.append("audio", blob, "note.webm");
+      // Dateiname egal — die Route liest file.type (= blob.type, durch FormData erhalten).
+      fd.append("audio", blob, "note");
       fd.append("recordedAt", new Date().toISOString());
       const res = await fetch(`/api/projects/${projectId}/notes`, { method: "POST", body: fd });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Upload fehlgeschlagen");
@@ -1142,9 +1185,9 @@ import { getNoteForOrg, setTranscript } from "@/server/notes/notes.service";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; noteId: string }> }) {
   const session = await requireSession();
-  const { noteId } = await params;
+  const { id, noteId } = await params;
   const note = await getNoteForOrg(session.orgId, noteId);
-  if (!note) return new NextResponse("Not found", { status: 404 });
+  if (!note || note.projectId !== id) return new NextResponse("Not found", { status: 404 });
 
   const body = await req.json().catch(() => ({}));
   const transcript = typeof body.transcript === "string" ? body.transcript : "";
@@ -1161,9 +1204,9 @@ import { inngest } from "@/inngest/client";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string; noteId: string }> }) {
   const session = await requireSession();
-  const { noteId } = await params;
+  const { id, noteId } = await params;
   const note = await getNoteForOrg(session.orgId, noteId);
-  if (!note) return new NextResponse("Not found", { status: 404 });
+  if (!note || note.projectId !== id) return new NextResponse("Not found", { status: 404 });
 
   await setTranscriptStatus(noteId, "pending");
   await inngest.send({ name: "note/created", data: { noteId } });
@@ -1272,3 +1315,4 @@ git commit -m "docs: whisper local setup notes and e2e verification" || echo "no
 - **Testbarkeit:** STT hinter `Transcriber` (Fake in Tests); Job-Logik `runTranscribeNote` mit Dependency-Injection getestet; Storage gegen Temp-Verzeichnisse; alle Domänentests org-scoped gegen Test-Postgres.
 - **Externe Abhängigkeit:** Echtes STT braucht `.venv-whisper` (faster-whisper) + ffmpeg; Risiko ctranslate2-Wheels auf Python 3.14 (in Task 10 behandelt). Kein API-Key/Account nötig.
 - **Typkonsistenz:** `ObjectStorage` (put/read/exists/contentType), `Transcriber.transcribe(absPath)`, `createNote/listNotes/getNoteForOrg/setTranscript/setTranscriptStatus`, `createPhoto/listPhotos`, Storage-Key-Schema `projects/<projectId>/...` durchgängig.
+- **Härtung (aus Review):** Upload-Größenlimits (Audio 25 MB / Foto 15 MB) VOR dem Puffern; `MediaRecorder`-Typ-Fallback für iOS/Safari (Upload mit echtem `blob.type`); Whisper-Prozess mit Timeout/Kill; Notiz-PATCH/Retry prüfen zusätzlich `note.projectId === id` (kein Cross-Projekt-Zugriff in derselben Org); `X-Content-Type-Options: nosniff` bei der Datei-Auslieferung; Dependency-Commits stagen `pnpm-lock.yaml`; `inngest-cli` via `npx`; `STORAGE_DIR` auch im committed `.env.test.example`.
