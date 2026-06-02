@@ -95,6 +95,7 @@ function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Löschen fehlgeschlagen");
+    } finally {
       setDeleting(false);
     }
   }

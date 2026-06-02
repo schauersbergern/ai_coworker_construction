@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 
 /**
  * Wiederverwendbares Guard-Popup für destruktive Aktionen (Notiz/Foto löschen).
@@ -23,6 +23,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const titleId = useId();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) onCancel();
@@ -42,13 +43,14 @@ export function ConfirmDialog({
       onClick={() => !busy && onCancel()}
       role="dialog"
       aria-modal="true"
+      aria-labelledby={titleId}
     >
       <div
         className="card max-w-sm w-full p-5 flex flex-col gap-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div>
-          <h3 className="font-bold text-lg">{title}</h3>
+          <h3 id={titleId} className="font-bold text-lg">{title}</h3>
           <p className="text-muted text-sm mt-1">{message}</p>
         </div>
         <div className="flex justify-end gap-2">

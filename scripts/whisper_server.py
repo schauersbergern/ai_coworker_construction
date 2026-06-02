@@ -8,6 +8,7 @@ GET /health -> {"status":"ok"} (für den Container-Healthcheck).
 
 import json
 import os
+import re
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -53,7 +54,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", 0))
         data = self.rfile.read(length)
+        # X-Audio-Ext fließt in den Temp-Dateinamen — nur einfache Endungen
+        # zulassen (kein Pfad/keine Sonderzeichen), sonst Default.
         ext = self.headers.get("X-Audio-Ext", "webm")
+        if not re.fullmatch(r"[a-z0-9]{1,10}", ext):
+            ext = "webm"
         try:
             with tempfile.NamedTemporaryFile(suffix=f".{ext}") as f:
                 f.write(data)

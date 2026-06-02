@@ -31,11 +31,16 @@ export function getPhotoForOrg(orgId: string, photoId: string) {
 }
 
 /**
- * Löscht das Foto vollständig: zuerst die Bilddatei (best-effort — ein Fehler
- * hier darf das Löschen des DB-Eintrags nicht blockieren), dann den DB-Eintrag.
+ * Löscht das Foto vollständig. Org-scoped: die Tenant-Grenze wird hier im
+ * Service erzwungen (Defense-in-Depth), nicht nur in der Route. Zuerst die
+ * Bilddatei (best-effort — ein Fehler hier darf das Löschen des DB-Eintrags
+ * nicht blockieren), dann der Eintrag.
  */
-export async function deletePhoto(photoId: string): Promise<void> {
-  const photo = await prisma.photo.findUnique({ where: { id: photoId }, select: { fileUrl: true } });
+export async function deletePhoto(orgId: string, photoId: string): Promise<void> {
+  const photo = await prisma.photo.findFirst({
+    where: { id: photoId, project: { orgId } },
+    select: { fileUrl: true },
+  });
   if (!photo) return;
   try {
     await storage.delete(photo.fileUrl);

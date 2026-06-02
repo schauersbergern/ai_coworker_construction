@@ -45,8 +45,16 @@ describe("photos.service", () => {
   it("deletePhoto removes the row; deleting a missing photo is a no-op", async () => {
     const { org, project } = await makeProject();
     const photo = await createPhoto(project.id, { fileKey: "k", clientCapturedAt: new Date(), exifTakenAt: null });
-    await deletePhoto(photo.id);
+    await deletePhoto(org.id, photo.id);
     expect(await listPhotos(org.id, project.id)).toHaveLength(0);
-    await expect(deletePhoto(photo.id)).resolves.toBeUndefined();
+    await expect(deletePhoto(org.id, photo.id)).resolves.toBeUndefined();
+  });
+
+  it("deletePhoto is org-scoped: a foreign org cannot delete the photo", async () => {
+    const a = await makeProject();
+    const b = await makeProject();
+    const photo = await createPhoto(a.project.id, { fileKey: "k", clientCapturedAt: new Date(), exifTakenAt: null });
+    await deletePhoto(b.org.id, photo.id);
+    expect(await listPhotos(a.org.id, a.project.id)).toHaveLength(1);
   });
 });

@@ -51,8 +51,16 @@ describe("notes.service", () => {
   it("deleteNote removes the row; deleting a missing note is a no-op", async () => {
     const { org, project } = await makeProject();
     const note = await createNote(project.id, { audioKey: "k", recordedAt: new Date() });
-    await deleteNote(note.id);
+    await deleteNote(org.id, note.id);
     expect(await listNotes(org.id, project.id)).toHaveLength(0);
-    await expect(deleteNote(note.id)).resolves.toBeUndefined();
+    await expect(deleteNote(org.id, note.id)).resolves.toBeUndefined();
+  });
+
+  it("deleteNote is org-scoped: a foreign org cannot delete the note", async () => {
+    const a = await makeProject();
+    const b = await makeProject();
+    const note = await createNote(a.project.id, { audioKey: "k", recordedAt: new Date() });
+    await deleteNote(b.org.id, note.id);
+    expect(await listNotes(a.org.id, a.project.id)).toHaveLength(1);
   });
 });

@@ -8,6 +8,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const photo = await getPhotoForOrg(session.orgId, photoId);
   if (!photo || photo.projectId !== id) return new NextResponse("Not found", { status: 404 });
 
-  await deletePhoto(photoId);
+  await deletePhoto(session.orgId, photoId);
   return new NextResponse(null, { status: 204 });
 }

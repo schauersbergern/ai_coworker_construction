@@ -39,12 +39,16 @@ export function setTranscriptStatus(noteId: string, status: TranscriptStatus) {
 }
 
 /**
- * Löscht die Notiz vollständig: zuerst die Audiodatei (best-effort — ein
- * Fehler hier darf das Löschen des DB-Eintrags nicht blockieren, sonst bleibt
- * eine verwaiste Zeile zurück), dann den DB-Eintrag.
+ * Löscht die Notiz vollständig. Org-scoped: die Tenant-Grenze wird hier im
+ * Service erzwungen (Defense-in-Depth), nicht nur in der Route. Zuerst die
+ * Audiodatei (best-effort — ein Fehler hier darf das Löschen des DB-Eintrags
+ * nicht blockieren, sonst bleibt eine verwaiste Zeile zurück), dann der Eintrag.
  */
-export async function deleteNote(noteId: string): Promise<void> {
-  const note = await prisma.note.findUnique({ where: { id: noteId }, select: { audioUrl: true } });
+export async function deleteNote(orgId: string, noteId: string): Promise<void> {
+  const note = await prisma.note.findFirst({
+    where: { id: noteId, project: { orgId } },
+    select: { audioUrl: true },
+  });
   if (!note) return;
   try {
     await storage.delete(note.audioUrl);

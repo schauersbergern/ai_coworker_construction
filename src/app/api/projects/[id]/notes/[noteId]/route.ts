@@ -20,6 +20,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const note = await getNoteForOrg(session.orgId, noteId);
   if (!note || note.projectId !== id) return new NextResponse("Not found", { status: 404 });
 
-  await deleteNote(noteId);
+  await deleteNote(session.orgId, noteId);
   return new NextResponse(null, { status: 204 });
 }
