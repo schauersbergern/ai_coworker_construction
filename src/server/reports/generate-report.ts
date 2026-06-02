@@ -8,6 +8,7 @@ import {
 } from "./reports.internal";
 import { matchPhotosToNotes } from "./photo-matching";
 import { renderReportPdf } from "@/server/pdf/render-report";
+import { log, logError } from "@/server/log";
 import type { RenderFinding } from "@/server/pdf/report-document";
 import type { DocGenerator } from "@/server/docgen/doc-generator";
 import type { ObjectStorage } from "@/server/storage/object-storage";
@@ -36,6 +37,8 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
   const report = await getReportById(reportId);
   if (!report) throw new Error(`Report ${reportId} not found`);
 
+  log("report", "start", { reportId, projectId: report.projectId });
+  const startedAt = Date.now();
   try {
     const inputs = await loadReportInputs(report.projectId);
     if (!inputs) throw new Error(`Project ${report.projectId} not found`);
@@ -113,9 +116,20 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
       walkthroughDate: walkthrough.toISOString(),
       generatedAt: deps.now.toISOString(),
     };
-    return await setReportResult(reportId, { pdfUrl: pdfKey, reportJson: artifact });
+    const result = await setReportResult(reportId, { pdfUrl: pdfKey, reportJson: artifact });
+    log("report", "done", {
+      reportId,
+      findings: findings.length,
+      matchedPhotos: [...match.byNote.values()].reduce((a, l) => a + l.length, 0),
+      unmatchedPhotos: match.unmatched.length,
+      skippedPhotos: skippedPhotos.length,
+      pdfBytes: pdf.length,
+      ms: Date.now() - startedAt,
+    });
+    return result;
   } catch (err) {
     await setReportStatus(reportId, "failed");
+    logError("report", "failed", err, { reportId });
     throw err;
   }
 }

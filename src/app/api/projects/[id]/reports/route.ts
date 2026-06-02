@@ -4,6 +4,7 @@ import { getProject } from "@/server/projects/projects.service";
 import { listNotes } from "@/server/notes/notes.service";
 import { createReport, setReportStatus } from "@/server/reports/reports.service";
 import { inngest } from "@/inngest/client";
+import { log, logError } from "@/server/log";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
@@ -28,11 +29,14 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   const label = `Export ${new Date().toLocaleDateString("de-AT")}`;
   const report = await createReport(projectId, { label, createdById: session.userId });
+  log("export", "report requested", { projectId, reportId: report.id, usableNotes: usable.length });
 
   try {
     await inngest.send({ name: "report/requested", data: { reportId: report.id } });
-  } catch {
+    log("export", "report/requested enqueued", { reportId: report.id });
+  } catch (err) {
     const failed = await setReportStatus(report.id, "failed");
+    logError("export", "report/requested enqueue failed", err, { reportId: report.id });
     return NextResponse.json(
       { id: failed.id, status: failed.status, error: "Export konnte nicht gestartet werden" },
       { status: 502 },

@@ -4,6 +4,7 @@ import { getProject } from "@/server/projects/projects.service";
 import { createNote, setTranscriptStatus } from "@/server/notes/notes.service";
 import { storage } from "@/server/storage";
 import { inngest } from "@/inngest/client";
+import { log, logError } from "@/server/log";
 
 const ALLOWED = new Map<string, string>([
   ["audio/webm", "webm"],
@@ -45,14 +46,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const key = `projects/${projectId}/notes/${crypto.randomUUID()}.${ext}`;
   await storage.put(key, buffer, file.type);
   const note = await createNote(projectId, { audioKey: key, recordedAt });
+  log("upload", "note received", { projectId, noteId: note.id, type: file.type, bytes: file.size });
 
   // Schlägt das Enqueuen fehl, bliebe die Notiz sonst dauerhaft "pending" ohne
   // Wiederherstellung (die UI bietet Retry nur für "failed"). Daher: auf "failed"
   // setzen, damit sie über den bestehenden Retry-Pfad wiederanstoßbar ist.
   try {
     await inngest.send({ name: "note/created", data: { noteId: note.id } });
-  } catch {
+    log("upload", "note/created enqueued", { noteId: note.id });
+  } catch (err) {
     const failed = await setTranscriptStatus(note.id, "failed");
+    logError("upload", "note/created enqueue failed", err, { noteId: note.id });
     return NextResponse.json(
       { id: failed.id, transcriptStatus: failed.transcriptStatus, error: "Transkription konnte nicht gestartet werden" },
       { status: 502 },

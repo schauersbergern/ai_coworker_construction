@@ -5,11 +5,13 @@ import { runGenerateReport } from "@/server/reports/generate-report";
 import { storage } from "@/server/storage";
 import { LocalWhisperTranscriber } from "@/server/transcription/local-whisper";
 import { ClaudeDocGenerator } from "@/server/docgen/claude-doc-generator";
+import { log } from "@/server/log";
 
 export const transcribeNote = inngest.createFunction(
   { id: "transcribe-note", retries: 2, triggers: [{ event: "note/created" }] },
   async ({ event }: { event: { data: { noteId: string } } }) => {
     const { noteId } = event.data;
+    log("inngest", "transcribe-note invoked", { noteId });
     await runTranscribeNote(noteId, {
       storage,
       transcriber: new LocalWhisperTranscriber(),
@@ -21,6 +23,7 @@ export const transcribeNote = inngest.createFunction(
 export const generateReport = inngest.createFunction(
   { id: "generate-report", retries: 1, triggers: [{ event: "report/requested" }] },
   async ({ event }: { event: { data: { reportId: string } } }) => {
+    log("inngest", "generate-report invoked", { reportId: event.data.reportId });
     await runGenerateReport(event.data.reportId, {
       storage,
       docGenerator: new ClaudeDocGenerator(),
