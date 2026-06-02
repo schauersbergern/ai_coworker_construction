@@ -9,6 +9,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const report = await getReportForOrg(session.orgId, reportId);
   if (!report || report.projectId !== id) return new NextResponse("Not found", { status: 404 });
 
+  // Nur fehlgeschlagene Exporte dürfen erneut versucht werden. Sonst könnte ein fertiges
+  // (done) PDF aus der Download-Liste zurückgesetzt oder ein laufender Export gestört werden.
+  if (report.status !== "failed") {
+    return NextResponse.json(
+      { error: "Nur fehlgeschlagene Exporte können erneut versucht werden.", status: report.status },
+      { status: 409 },
+    );
+  }
+
   await setReportStatus(reportId, "pending");
   try {
     await inngest.send({ name: "report/requested", data: { reportId } });
