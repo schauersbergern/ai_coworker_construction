@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Hanken_Grotesk, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const bricolage = Bricolage_Grotesque({
+  variable: "--font-bricolage",
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+});
+
+const hanken = Hanken_Grotesk({
+  variable: "--font-hanken",
   subsets: ["latin"],
 });
 
@@ -13,8 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Baudoku",
-  description: "KI-gestützte Baudokumentation für Architektur- und Planungsbüros",
+  title: "Baudoku · KI-Mitarbeiter",
+  description: "KI-Mitarbeiter für Architektur- und Planungsbüros",
 };
 
 export default function RootLayout({
@@ -24,8 +30,8 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      lang="de"
+      className={`${bricolage.variable} ${hanken.variable} ${geistMono.variable} antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

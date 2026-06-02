@@ -70,14 +70,18 @@ function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
   }
 
   return (
-    <li className="border rounded p-3 flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-500">{new Date(note.recordedAt).toLocaleString("de-AT")}</span>
+    <li className="border border-line rounded-xl p-3 flex flex-col gap-2 bg-paper/40">
+      <div className="flex items-center gap-2 text-sm flex-wrap">
+        <span className="text-muted font-mono text-xs">
+          {new Date(note.recordedAt).toLocaleString("de-AT")}
+        </span>
         <StatusBadge status={note.transcriptStatus} />
-        <audio controls src={`/api/files/${note.audioKey}`} className="h-8" />
+        <audio controls src={`/api/files/${note.audioKey}`} className="h-8 ml-auto" />
       </div>
       {note.transcriptStatus === "failed" && (
-        <button onClick={retry} className="self-start text-cobalt underline text-sm">Transkription erneut versuchen</button>
+        <button onClick={retry} className="self-start text-cobalt underline text-sm">
+          Transkription erneut versuchen
+        </button>
       )}
       <textarea
         value={text}
@@ -86,9 +90,9 @@ function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
           setDirty(true);
         }}
         placeholder={note.transcriptStatus === "pending" ? "Transkription läuft…" : "Transkript"}
-        className="border rounded p-2 min-h-20"
+        className="field min-h-20 resize-y"
       />
-      <button onClick={save} disabled={saving} className="self-start bg-cobalt text-white rounded px-3 py-1 text-sm disabled:opacity-50">
+      <button onClick={save} disabled={saving} className="btn btn-outline self-start">
         {saving ? "Speichern…" : "Transkript speichern"}
       </button>
       {error && <p className="text-red-600 text-sm">{error}</p>}

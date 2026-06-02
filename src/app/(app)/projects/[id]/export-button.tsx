@@ -24,7 +24,7 @@ export function ExportButton({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <button onClick={exportNow} disabled={busy} className="self-start bg-cobalt text-white rounded p-2 disabled:opacity-50">
+      <button onClick={exportNow} disabled={busy} className="btn btn-accent self-start">
         {busy ? "Wird erstellt…" : "📄 Dokumentation exportieren"}
       </button>
       {error && <p className="text-red-600 text-sm">{error}</p>}

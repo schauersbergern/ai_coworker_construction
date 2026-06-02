@@ -8,29 +8,50 @@ export default async function ProjectsPage() {
   const projects = await listProjects(session.orgId);
 
   return (
-    <main className="p-6 flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold text-cobalt">Projekte</h1>
-      <section>
-        <h2 className="text-lg font-medium mb-2">Neues Projekt</h2>
+    <div className="mx-auto max-w-5xl px-5 py-8 sm:py-10 flex flex-col gap-8">
+      <header>
+        <Link href="/" className="text-sm text-muted hover:text-cobalt">
+          ← Mitarbeiter
+        </Link>
+        <div className="flex items-center gap-3 mt-2">
+          <span className="grid place-items-center w-11 h-11 rounded-xl bg-cobalt/10 text-xl">👷</span>
+          <div>
+            <h1 className="text-2xl font-extrabold leading-none">Franz</h1>
+            <p className="label-eyebrow mt-1 !text-muted">Baudokumentation</p>
+          </div>
+        </div>
+      </header>
+
+      <section className="card p-5">
+        <h2 className="font-bold mb-3">Neues Projekt</h2>
         <NewProjectForm />
       </section>
-      <section>
-        <h2 className="text-lg font-medium mb-2">Bestehende Projekte</h2>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="font-bold">Projekte</h2>
         {projects.length === 0 ? (
-          <p className="text-gray-500">Noch keine Projekte.</p>
+          <p className="text-muted text-sm">Noch keine Projekte — leg oben das erste an.</p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="grid gap-3 sm:grid-cols-2">
             {projects.map((p) => (
               <li key={p.id}>
-                <Link href={`/projects/${p.id}`} className="text-cobalt underline">
-                  {p.name}
+                <Link
+                  href={`/projects/${p.id}`}
+                  className="card p-4 block hover:-translate-y-0.5 hover:shadow-md transition-transform"
+                >
+                  <span className="font-semibold">{p.name}</span>
+                  {p.address && <span className="block text-sm text-muted mt-0.5">{p.address}</span>}
+                  {p.projectNo && (
+                    <span className="block text-xs text-muted/80 font-mono mt-1">
+                      Nr. {p.projectNo}
+                    </span>
+                  )}
                 </Link>
-                {p.address && <span className="text-gray-500"> — {p.address}</span>}
               </li>
             ))}
           </ul>
         )}
       </section>
-    </main>
+    </div>
   );
 }
