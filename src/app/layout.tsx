@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Baudoku · KI-Mitarbeiter",
+  title: "Manibase · KI-Mitarbeiter",
   description: "KI-Mitarbeiter für Architektur- und Planungsbüros",
 };
 
