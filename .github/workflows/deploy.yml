@@ -1,0 +1,65 @@
+name: Deploy to production
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.gitignore'
+      - 'LICENSE'
+  workflow_dispatch:
+
+# Keine zwei Deploys gleichzeitig; einen laufenden Deploy nicht abbrechen.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH + docker compose up
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+
+    steps:
+      - name: Deploy via SSH (pull + rebuild + up)
+        # Auf die Commit-SHA von appleboy/ssh-action v1.2.0 gepinnt — ein verschobener/
+        # kompromittierter Tag darf mit dem DEPLOY_SSH_KEY keinen fremden Code ausführen.
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        with:
+          host: 72.62.42.27
+          username: deploy
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          # Host-Key-Pin: authentifiziert die Server-Identität, bevor das Deploy-Skript
+          # gesendet wird (ECDSA-Fingerprint von 72.62.42.27).
+          fingerprint: "SHA256:V5zZ5BDbF+0H3rU37NWtnbJhdq/+NAUn6J44yTXDzzE"
+          script_stop: true
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+
+            cd /home/deploy/ai_coworker_construction
+
+            # Hart auf origin/main zurücksetzen — keine Merge-Überraschungen auf dem Server.
+            git fetch --prune origin main
+            git reset --hard origin/main
+
+            # Build + (re)start. --remove-orphans räumt umbenannte/entfernte Services auf.
+            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+
+            docker compose -f docker-compose.prod.yml ps
+
+      - name: Public smoke test (/ready über nginx/TLS — App + DB erreichbar)
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if body=$(curl -fsS --max-time 10 https://employees.aicoreinfra.de/ready); then
+              echo "Response: $body"
+              echo "$body" | grep -q '"status":"ready"' && exit 0
+            fi
+            echo "attempt $attempt: noch nicht bereit, warte..."
+            sleep 8
+          done
+          echo "Smoke-Test fehlgeschlagen: /ready lieferte nicht status=ready innerhalb ~80s" >&2
+          exit 1

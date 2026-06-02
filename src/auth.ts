@@ -1,38 +1,36 @@
 import NextAuth from "next-auth";
-import Nodemailer from "next-auth/providers/nodemailer";
-import { createTransport } from "nodemailer";
+import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/server/db";
-import { isProvisionedEmail } from "@/server/auth/provisioning";
+import { isEmailAllowed } from "@/server/auth/access";
+import { getOrCreateDefaultOrg } from "@/server/auth/default-org";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   session: { strategy: "database" },
   providers: [
-    Nodemailer({
-      server: process.env.EMAIL_SERVER!,
-      from: process.env.EMAIL_FROM!,
-      // Gate VOR dem Versand: unbekannte/unprovisionierte Adressen erhalten
-      // keinen Magic-Link (kein Account wird angelegt).
-      async sendVerificationRequest({ identifier, url, provider }) {
-        if (!(await isProvisionedEmail(identifier))) return;
-        const transport = createTransport(provider.server as string);
-        await transport.sendMail({
-          to: identifier,
-          from: provider.from,
-          subject: "Dein Anmelde-Link für Baudoku",
-          text: `Anmelden: ${url}`,
-          html: `<p>Klicke zum Anmelden:</p><p><a href="${url}">${url}</a></p>`,
-        });
-      },
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      // Verknüpft den Google-Login mit einem evtl. bereits vorhandenen User gleicher
+      // E-Mail (z. B. aus altem Seed/Magic-Link), statt mit OAuthAccountNotLinked zu
+      // scheitern. Sicher, weil Google die E-Mail verifiziert + ALLOWED_EMAILS gatet.
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
   callbacks: {
-    // Defense-in-depth: selbst wenn ein Token kursiert, wird die Anmeldung
-    // einer nicht provisionierten Adresse abgelehnt.
+    // Zugangs-Gate: nur E-Mails aus ALLOWED_EMAILS dürfen sich anmelden.
+    // Bei false wird weder Account noch User angelegt.
     async signIn({ user }) {
-      if (!user.email) return false;
-      return await isProvisionedEmail(user.email);
+      return isEmailAllowed(user.email);
+    },
+  },
+  events: {
+    // Beim ersten Login (User wird vom Adapter angelegt) der gemeinsamen
+    // Pilot-Organisation zuordnen.
+    async createUser({ user }) {
+      const org = await getOrCreateDefaultOrg();
+      await prisma.user.update({ where: { id: user.id }, data: { orgId: org.id } });
     },
   },
   pages: { signIn: "/login" },
