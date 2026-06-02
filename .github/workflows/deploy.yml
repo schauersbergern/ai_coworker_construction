@@ -46,3 +46,8 @@ jobs:
           done
           echo "Smoke-Test fehlgeschlagen: /ready lieferte nicht status=ready" >&2
           exit 1
+
+      - name: Inngest sync (App bei Inngest Cloud re-registrieren)
+        # Registriert die Funktionen nach jedem Deploy neu (sonst kann die Registrierung
+        # veralten und Events lösen keine Jobs mehr aus → Transkription/PDF bleiben hängen).
+        run: curl -fsS -X PUT https://employees.aicoreinfra.de/api/inngest
