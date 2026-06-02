@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
-import { createNote, listNotes, getNoteForOrg, setTranscript, setTranscriptStatus } from "./notes.service";
+import { createNote, listNotes, getNoteForOrg, setTranscript, setTranscriptStatus, deleteNote } from "./notes.service";
 
 async function makeProject() {
   const org = await prisma.organization.create({ data: { name: "Büro" } });
@@ -46,5 +46,13 @@ describe("notes.service", () => {
     expect(done.transcriptStatus).toBe("done");
     const failed = await setTranscriptStatus(note.id, "failed");
     expect(failed.transcriptStatus).toBe("failed");
+  });
+
+  it("deleteNote removes the row; deleting a missing note is a no-op", async () => {
+    const { org, project } = await makeProject();
+    const note = await createNote(project.id, { audioKey: "k", recordedAt: new Date() });
+    await deleteNote(note.id);
+    expect(await listNotes(org.id, project.id)).toHaveLength(0);
+    await expect(deleteNote(note.id)).resolves.toBeUndefined();
   });
 });

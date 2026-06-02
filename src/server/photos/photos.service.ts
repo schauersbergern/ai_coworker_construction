@@ -1,4 +1,6 @@
 import { prisma } from "@/server/db";
+import { storage } from "@/server/storage";
+import { logError } from "@/server/log";
 
 export type CreatePhotoInput = {
   fileKey: string;
@@ -22,4 +24,23 @@ export function listPhotos(orgId: string, projectId: string) {
     where: { projectId, project: { orgId } },
     orderBy: [{ exifTakenAt: "asc" }, { uploadedAt: "asc" }],
   });
+}
+
+export function getPhotoForOrg(orgId: string, photoId: string) {
+  return prisma.photo.findFirst({ where: { id: photoId, project: { orgId } } });
+}
+
+/**
+ * Löscht das Foto vollständig: zuerst die Bilddatei (best-effort — ein Fehler
+ * hier darf das Löschen des DB-Eintrags nicht blockieren), dann den DB-Eintrag.
+ */
+export async function deletePhoto(photoId: string): Promise<void> {
+  const photo = await prisma.photo.findUnique({ where: { id: photoId }, select: { fileUrl: true } });
+  if (!photo) return;
+  try {
+    await storage.delete(photo.fileUrl);
+  } catch (err) {
+    logError("photos", "file delete failed", err, { photoId });
+  }
+  await prisma.photo.delete({ where: { id: photoId } });
 }

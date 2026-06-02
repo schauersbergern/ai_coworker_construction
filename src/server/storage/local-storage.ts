@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, access } from "node:fs/promises";
+import { mkdir, readFile, writeFile, access, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { assertSafeKey, type ObjectStorage } from "./object-storage";
 
@@ -37,5 +37,12 @@ export class LocalStorage implements ObjectStorage {
     } catch {
       return "application/octet-stream";
     }
+  }
+
+  async delete(key: string): Promise<void> {
+    const p = this.abs(key);
+    // force: true → kein Fehler, wenn die Datei bereits fehlt.
+    await rm(p, { force: true });
+    await rm(`${p}.meta`, { force: true });
   }
 }

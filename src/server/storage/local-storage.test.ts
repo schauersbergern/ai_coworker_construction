@@ -31,4 +31,19 @@ describe("LocalStorage", () => {
     await expect(storage.put("../escape.txt", Buffer.from("x"), "text/plain")).rejects.toThrow();
     await expect(storage.read("/etc/passwd")).rejects.toThrow();
   });
+
+  it("deletes an object and its content-type sidecar", async () => {
+    await storage.put("projects/p1/photos/x.jpg", Buffer.from("img"), "image/jpeg");
+    await storage.delete("projects/p1/photos/x.jpg");
+    expect(await storage.exists("projects/p1/photos/x.jpg")).toBe(false);
+    expect(await storage.contentType("projects/p1/photos/x.jpg")).toBe("application/octet-stream");
+  });
+
+  it("delete is a no-op for a missing object", async () => {
+    await expect(storage.delete("projects/p1/photos/missing.jpg")).resolves.toBeUndefined();
+  });
+
+  it("rejects path-traversal keys on delete", async () => {
+    await expect(storage.delete("../escape.txt")).rejects.toThrow();
+  });
 });

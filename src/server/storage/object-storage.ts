@@ -3,6 +3,8 @@ export interface ObjectStorage {
   read(key: string): Promise<Buffer>;
   exists(key: string): Promise<boolean>;
   contentType(key: string): Promise<string>;
+  /** Entfernt das Objekt; ein bereits fehlendes Objekt ist kein Fehler. */
+  delete(key: string): Promise<void>;
 }
 
 /** Wirft bei unsicheren Keys (Path-Traversal, absolute Pfade). */

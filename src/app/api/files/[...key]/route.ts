@@ -25,6 +25,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
     headers: {
       "Content-Type": contentType,
       "X-Content-Type-Options": "nosniff",
+      // Nutzergenerierte Inhalte niemals als aktiven Content ausführen, selbst
+      // wenn der Content-Type manipulierbar wäre.
+      "Content-Security-Policy": "default-src 'none'; sandbox",
       "Cache-Control": "private, max-age=3600",
     },
   });

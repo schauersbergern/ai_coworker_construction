@@ -1,32 +1,63 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ConfirmDialog } from "./confirm-dialog";
 
 export type PhotoView = { id: string; fileKey: string };
 
 /* eslint-disable @next/next/no-img-element -- Fotos laufen über die authentifizierte /api/files-Route */
 
-export function PhotoGallery({ photos }: { photos: PhotoView[] }) {
+export function PhotoGallery({ projectId, photos }: { projectId: string; photos: PhotoView[] }) {
   const [open, setOpen] = useState<number | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   if (photos.length === 0) return <p className="text-muted text-sm">Noch keine Fotos.</p>;
 
+  async function del(photoId: string) {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/photos/${photoId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Löschen fehlgeschlagen");
+      setConfirmId(null);
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Löschen fehlgeschlagen");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <>
+      {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
         {photos.map((p, i) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => setOpen(i)}
-            className="aspect-square overflow-hidden rounded-lg border border-line group"
-          >
-            <img
-              src={`/api/files/${p.fileKey}`}
-              alt=""
-              className="w-full h-full object-cover transition-transform group-hover:scale-105"
-            />
-          </button>
+          <div key={p.id} className="relative aspect-square group">
+            <button
+              type="button"
+              onClick={() => setOpen(i)}
+              className="absolute inset-0 overflow-hidden rounded-lg border border-line"
+            >
+              <img
+                src={`/api/files/${p.fileKey}`}
+                alt=""
+                className="w-full h-full object-cover transition-transform group-hover:scale-105"
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmId(p.id)}
+              aria-label="Foto löschen"
+              className="absolute top-1 right-1 z-10 grid place-items-center w-6 h-6 rounded-full bg-black/55 text-white text-xs leading-none hover:bg-black/75"
+            >
+              ✕
+            </button>
+          </div>
         ))}
       </div>
 
@@ -36,6 +67,16 @@ export function PhotoGallery({ photos }: { photos: PhotoView[] }) {
           index={open}
           onClose={() => setOpen(null)}
           onNav={(d) => setOpen((i) => (i === null ? i : (i + d + photos.length) % photos.length))}
+        />
+      )}
+
+      {confirmId !== null && (
+        <ConfirmDialog
+          title="Foto löschen?"
+          message="Das Foto wird dauerhaft gelöscht. Das kann nicht rückgängig gemacht werden."
+          busy={deleting}
+          onConfirm={() => del(confirmId)}
+          onCancel={() => setConfirmId(null)}
         />
       )}
     </>
