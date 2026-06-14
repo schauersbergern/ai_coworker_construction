@@ -39,6 +39,21 @@ export function setTranscriptStatus(noteId: string, status: TranscriptStatus) {
 }
 
 /**
+ * Beansprucht eine Notiz atomar für einen erneuten Versuch: setzt sie nur dann auf
+ * `pending`, wenn sie aktuell `failed`/`cancelled` ist (und org-scoped). Liefert true,
+ * wenn dieser Aufruf den Übergang gewonnen hat. Verhindert per bedingtem updateMany
+ * ein TOCTOU-Race zwischen lesen und schreiben: bei zwei parallelen Retries gewinnt
+ * genau einer (count === 1), der zweite sieht `pending` (nicht mehr in der Menge) → false.
+ */
+export async function claimNoteForRetry(orgId: string, noteId: string): Promise<boolean> {
+  const res = await prisma.note.updateMany({
+    where: { id: noteId, project: { orgId }, transcriptStatus: { in: ["failed", "cancelled"] } },
+    data: { transcriptStatus: "pending" },
+  });
+  return res.count === 1;
+}
+
+/**
  * Löscht die Notiz vollständig. Org-scoped: die Tenant-Grenze wird hier im
  * Service erzwungen (Defense-in-Depth), nicht nur in der Route. Zuerst die
  * Audiodatei (best-effort — ein Fehler hier darf das Löschen des DB-Eintrags
