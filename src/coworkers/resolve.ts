@@ -1,6 +1,9 @@
 import { logError } from "@/server/log";
+import { prisma } from "@/server/db";
 import { deepMerge } from "./merge";
-import type { Availability, CoworkerManifest } from "./types";
+import { getAllCoworkers, getCoworker } from "./registry";
+import { disabledCoworkers } from "./env";
+import type { Availability, CoworkerManifest, ResolvedCoworker } from "./types";
 
 type EntitlementRow = { enabled: boolean } | null;
 type ConfigRow = { config: unknown; configVersion: number } | null;
@@ -44,4 +47,33 @@ export function resolveConfig<C>(
     return manifest.defaultConfig;
   }
   return parsed.data;
+}
+
+export async function getResolvedCoworkers(orgId: string): Promise<ResolvedCoworker[]> {
+  const rows = await prisma.orgModule.findMany({ where: { orgId } });
+  const byId = new Map(rows.map((r) => [r.coworkerId, r]));
+  const disabled = disabledCoworkers();
+
+  return getAllCoworkers().map((manifest) => {
+    const row = byId.get(manifest.id) ?? null;
+    const availability = resolveAvailability(manifest, row, disabled);
+    const config = availability === "available" ? resolveConfig(manifest, row, { orgId }) : undefined;
+    return { manifest, availability, config };
+  });
+}
+
+export async function getResolvedCoworker(orgId: string, id: string): Promise<ResolvedCoworker | null> {
+  const manifest = getCoworker(id);
+  if (!manifest) return null;
+  const row = await prisma.orgModule.findUnique({
+    where: { orgId_coworkerId: { orgId, coworkerId: id } },
+  });
+  const availability = resolveAvailability(manifest, row, disabledCoworkers());
+  const config = availability === "available" ? resolveConfig(manifest, row, { orgId }) : undefined;
+  return { manifest, availability, config };
+}
+
+export async function isAvailable(orgId: string, id: string): Promise<boolean> {
+  const resolved = await getResolvedCoworker(orgId, id);
+  return !!resolved && resolved.availability === "available";
 }
