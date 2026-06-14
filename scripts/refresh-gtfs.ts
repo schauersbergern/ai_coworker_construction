@@ -8,6 +8,11 @@
  * The committed mvv-stops.json is a small hand-authored sample used as a fallback until a
  * real refresh has been performed.
  *
+ * ABDECKUNG: MVV + MVG decken nur den Großraum München ab — NICHT ganz Bayern. Der
+ * transit-Adapter meldet außerhalb dieses Raums daher "außerhalb der Datenabdeckung" (kein
+ * ÖPNV-Mangel). Für bayernweite Abdeckung hier weitere GTFS-Feeds ergänzen (DB-Fernverkehr,
+ * regionale Verkehrsverbünde) und SOURCES entsprechend erweitern.
+ *
  * Usage: pnpm refresh:gtfs
  */
 

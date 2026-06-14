@@ -24,15 +24,30 @@ describe("computeScores", () => {
     expect(s.vermarktungsScore).toBeLessThanOrEqual(100);
     expect(s.zielgruppen.length).toBeGreaterThan(0);
     expect(s.primaereZielgruppe).toBeTruthy();
+    expect(s.dataSufficient).toBe(true);
   });
 
-  it("does not crash on an empty profile (all unavailable)", () => {
+  it("flags insufficient data (ampel 'unbekannt') when the core inputs are all unavailable", () => {
     const p = profile({
       pois: unavailable({ source: "", license: "", reason: "x" }),
       transit: unavailable({ source: "", license: "", reason: "x" }),
     });
     const s = computeScores(p, { weights });
-    expect(s.vermarktungsScore).toBeGreaterThanOrEqual(0);
+    expect(s.vermarktungsScore).toBeGreaterThanOrEqual(0); // läuft nicht in einen Crash
+    expect(s.dataSufficient).toBe(false);
+    expect(s.ampel).toBe("unbekannt"); // KEIN scheinbar belastbares Gelb
+    expect(s.investitionsSignal.label).toBe("Unzureichende Datenlage");
+    expect(s.dataCoverage.available).toBe(0);
+  });
+
+  it("treats data as sufficient when at least POIs are present (transit may be out of coverage)", () => {
+    const p = profile({
+      pois: ok({ supermarket: { count: 1, nearestM: 400 } }, { source: "", license: "", confidence: "medium" }),
+      transit: unavailable({ source: "", license: "", reason: "außerhalb Abdeckung" }),
+    });
+    const s = computeScores(p, { weights });
+    expect(s.dataSufficient).toBe(true);
+    expect(s.ampel).not.toBe("unbekannt");
   });
 
   it("forces a red Ampel and lowers the signal in a HQ100 flood zone", () => {

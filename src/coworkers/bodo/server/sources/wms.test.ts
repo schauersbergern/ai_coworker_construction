@@ -30,4 +30,13 @@ describe("wms/wfs helpers", () => {
     vi.stubGlobal("fetch", respond({ features: [] }));
     expect(await wfsHasFeatureAtPoint("https://wfs", "ns:typeA", { lat: 48, lon: 11 })).toBe(false);
   });
+
+  it("wmsHasFeatureAtPoint sends the OGC-mandatory STYLES and FORMAT params", async () => {
+    const fetchSpy = respond({ features: [] });
+    vi.stubGlobal("fetch", fetchSpy);
+    await wmsHasFeatureAtPoint("https://wms", "layerA", { lat: 48, lon: 11 });
+    const url = String((fetchSpy.mock.calls as unknown as string[][])[0]?.[0] ?? "");
+    expect(url).toContain("STYLES=");
+    expect(url).toContain("FORMAT=image/png");
+  });
 });

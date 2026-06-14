@@ -14,6 +14,11 @@ export interface TransitInfo {
 
 const DEFAULT_STOPS = rawStops as Stop[];
 const MAX_RADIUS_M = 1500;
+// Der GTFS-Datensatz deckt nur den MVV/MVG-Raum (Großraum München) ab. Liegt die NÄCHSTE
+// bekannte Haltestelle weiter als das weg, ist der Punkt außerhalb der Datenabdeckung — dann
+// ehrlich "nur München abgedeckt" melden statt fälschlich "keine Haltestelle" (was ÖPNV-Mangel
+// suggerierte). Bayern-weite Abdeckung erfordert weitere GTFS-Feeds (DB/regionale Verbünde).
+const COVERAGE_MAX_M = 25000;
 
 function haversineM(a: Coordinate, b: Coordinate): number {
   const R = 6371000;
@@ -38,7 +43,16 @@ export async function fetchTransit(
     if (!best || d < best.distanceM) best = { name: s.name, distanceM: d };
   }
 
-  if (!best || best.distanceM > MAX_RADIUS_M) {
+  if (!best || best.distanceM > COVERAGE_MAX_M) {
+    // Außerhalb der MVV/MVG-Datenabdeckung — keine Aussage möglich (kein ÖPNV-Mangel).
+    return unavailable<TransitInfo>({
+      source: "MVV/MVG GTFS",
+      license: "CC BY 4.0",
+      reason: "außerhalb der ÖPNV-Datenabdeckung (nur MVV/MVG-Raum München)",
+    });
+  }
+  if (best.distanceM > MAX_RADIUS_M) {
+    // Innerhalb der Abdeckung, aber keine Haltestelle im Relevanzradius.
     return unavailable<TransitInfo>({
       source: "MVV/MVG GTFS",
       license: "CC BY 4.0",

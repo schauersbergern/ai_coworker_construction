@@ -2,7 +2,7 @@ import type { LocationProfile } from "../pipeline/profile";
 import type { DataPoint } from "../sources/types";
 import type { ScoringWeights } from "../../config";
 
-export type Ampel = "gruen" | "gelb" | "rot";
+export type Ampel = "gruen" | "gelb" | "rot" | "unbekannt";
 export interface Zielgruppe { id: string; label: string; score: number; }
 export interface Scores {
   ampel: Ampel;
@@ -11,6 +11,10 @@ export interface Scores {
   zielgruppen: Zielgruppe[];
   primaereZielgruppe: string;
   investitionsSignal: { score: number; label: string; risiken: string[] };
+  /** Wie viele der bewertungsrelevanten Quellen lieferten Daten (Transparenz gegen Schein-Scores). */
+  dataCoverage: { available: number; total: number };
+  /** false, wenn die Kern-Inputs (POIs + ÖPNV) BEIDE fehlen — dann ist der Score nicht belastbar. */
+  dataSufficient: boolean;
 }
 
 type PoisValue = Record<string, { count: number; nearestM: number | null } | undefined>;
@@ -66,14 +70,28 @@ export function computeScores(p: LocationProfile, cfg: { weights: ScoringWeights
   const riskPenalty = risiken.reduce((s, r) => s + r.severity, 0);
   const hardRisk = risiken.some((r) => r.severity >= 3);
 
-  let ampel: Ampel = vermarktungsScore >= 66 ? "gruen" : vermarktungsScore >= 40 ? "gelb" : "rot";
-  if (hardRisk) ampel = "rot";
-  else if (riskPenalty >= 2 && ampel === "gruen") ampel = "gelb";
+  // Datenabdeckung: ohne belastbare Kern-Inputs (POIs/ÖPNV) ist die gewichtete 0.5-Neutralität
+  // ein Schein-Score. Dann explizit als "unbekannt" ausweisen statt scheinbar belastbares Gelb.
+  const coverageFields = [pois, transit, flood, geol, natur, denkmal];
+  const dataCoverage = { available: coverageFields.filter((v) => v !== null).length, total: coverageFields.length };
+  const dataSufficient = pois !== null || transit !== null;
+
+  let ampel: Ampel;
+  if (!dataSufficient) {
+    ampel = "unbekannt";
+  } else if (hardRisk) {
+    ampel = "rot";
+  } else {
+    ampel = vermarktungsScore >= 66 ? "gruen" : vermarktungsScore >= 40 ? "gelb" : "rot";
+    if (riskPenalty >= 2 && ampel === "gruen") ampel = "gelb";
+  }
 
   const signalScore = Math.max(0, Math.min(100, vermarktungsScore - riskPenalty * 8));
   const investitionsSignal = {
     score: signalScore,
-    label: hardRisk ? "Erhöhtes Risiko" : signalScore >= 66 ? "Positives Signal" : signalScore >= 40 ? "Neutral" : "Entwicklungslage",
+    label: !dataSufficient
+      ? "Unzureichende Datenlage"
+      : hardRisk ? "Erhöhtes Risiko" : signalScore >= 66 ? "Positives Signal" : signalScore >= 40 ? "Neutral" : "Entwicklungslage",
     risiken: risiken.map((r) => r.label),
   };
 
@@ -92,5 +110,7 @@ export function computeScores(p: LocationProfile, cfg: { weights: ScoringWeights
     zielgruppen,
     primaereZielgruppe: zielgruppen[0].label,
     investitionsSignal,
+    dataCoverage,
+    dataSufficient,
   };
 }

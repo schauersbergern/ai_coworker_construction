@@ -5,8 +5,11 @@ import type { Coordinate } from "../pipeline/profile";
 function buildWmsGetFeatureInfoUrl(base: string, layer: string, c: Coordinate): string {
   const d = 0.0002;
   const bbox = `${c.lat - d},${c.lon - d},${c.lat + d},${c.lon + d}`;
+  // STYLES (leer = Default-Style) und FORMAT sind GetMap-Pflichtparameter, die GetFeatureInfo
+  // erbt (OGC WMS 1.3.0 §7.4.3) — konforme Server lehnen die Anfrage sonst ab.
   return `${base}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&INFO_FORMAT=application/json` +
-    `&QUERY_LAYERS=${layer}&LAYERS=${layer}&CRS=EPSG:4326&WIDTH=3&HEIGHT=3&I=1&J=1&BBOX=${bbox}`;
+    `&QUERY_LAYERS=${layer}&LAYERS=${layer}&STYLES=&FORMAT=image/png` +
+    `&CRS=EPSG:4326&WIDTH=3&HEIGHT=3&I=1&J=1&BBOX=${bbox}`;
 }
 
 /** Generische WMS 1.3.0 GetFeatureInfo-Punktabfrage: gibt es am Punkt ein Feature? */

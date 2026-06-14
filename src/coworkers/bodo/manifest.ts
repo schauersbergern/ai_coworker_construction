@@ -9,7 +9,10 @@ export const bodoManifest: CoworkerManifest<BodoConfig> = {
   blurb:
     "Bewertet aus einer Adresse die Lage: Infrastruktur, Risiken, Umwelt und Markt — und erstellt ein PDF-Dossier auf Knopfdruck.",
   lifecycle: "active",
-  enabledByDefault: true,
+  // Bewusst NICHT per Default freigeschaltet: mehrere Risiko-Endpoints in sources/endpoints.ts
+  // sind noch nicht live verifiziert (v.a. der DGM1-Platzhalter). Bodo wird pro Org gezielt per
+  // OrgModule-Row aktiviert (siehe seed-coworkers.ts), sobald die Quellen verifiziert sind.
+  enabledByDefault: false,
   configSchema: bodoConfigSchema,
   defaultConfig: bodoDefaultConfig,
   configVersion: 0,

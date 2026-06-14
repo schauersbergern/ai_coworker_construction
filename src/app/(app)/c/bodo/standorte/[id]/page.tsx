@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { loadAssessment } from "./data";
+import { StatusPoller } from "./status-poller";
 import type { Scores } from "@/coworkers/bodo/server/scoring/score";
 
 function AmpelBadge({ ampel }: { ampel: Scores["ampel"] }) {
@@ -7,6 +8,7 @@ function AmpelBadge({ ampel }: { ampel: Scores["ampel"] }) {
     gruen: { label: "Grün", className: "bg-green-100 text-green-800 border-green-300" },
     gelb: { label: "Gelb", className: "bg-yellow-100 text-yellow-800 border-yellow-300" },
     rot: { label: "Rot", className: "bg-red-100 text-red-800 border-red-300" },
+    unbekannt: { label: "Unbekannt", className: "bg-gray-100 text-gray-700 border-gray-300" },
   } as const;
   const { label, className } = map[ampel];
   return (
@@ -21,6 +23,7 @@ function AmpelLabel({ ampel }: { ampel: Scores["ampel"] }) {
     gruen: "Gute Vermarktbarkeit",
     gelb: "Eingeschränkte Vermarktbarkeit",
     rot: "Schwierige Vermarktbarkeit",
+    unbekannt: "Unzureichende Datenlage — keine belastbare Bewertung",
   };
   return <span className="text-muted">{labels[ampel]}</span>;
 }
@@ -137,7 +140,10 @@ export default async function AssessmentDetail({ params }: { params: Promise<{ i
       )}
 
       {(a.status === "pending" || a.status === "running") && (
-        <p className="text-muted mt-4 italic">Bewertung wird erstellt…</p>
+        <>
+          <p className="text-muted mt-4 italic">Bewertung wird erstellt…</p>
+          <StatusPoller />
+        </>
       )}
     </div>
   );

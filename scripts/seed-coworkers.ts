@@ -2,11 +2,15 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-const COWORKER_IDS = ["franz", "bodo"] as const;
+const COWORKER_IDS = ["franz"] as const;
 
 /**
- * Backfill: schaltet Franz und Bodo für alle bestehenden Organisationen frei.
+ * Backfill: schaltet Franz für alle bestehenden Organisationen frei.
  * Idempotent über die @@unique([orgId, coworkerId])-Constraint (skipDuplicates).
+ *
+ * Bodo ist bewusst NICHT enthalten: enabledByDefault=false, bis die Risiko-Endpoints live
+ * verifiziert sind. Bodo wird pro Org gezielt freigeschaltet (eigene OrgModule-Row mit
+ * coworkerId "bodo", enabled: true), erst nach Verifizierung.
  */
 async function main() {
   const orgs = await prisma.organization.findMany({ select: { id: true } });

@@ -13,6 +13,7 @@ const COBALT = "#1b3bdb";
 const GRUEN = "#16a34a";
 const GELB = "#ca8a04";
 const ROT = "#dc2626";
+const GRAU = "#6b7280";
 
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 11, fontFamily: "Helvetica", color: "#2a2b2d" },
@@ -23,6 +24,7 @@ const styles = StyleSheet.create({
   ampelGruen: { fontSize: 13, fontFamily: "Helvetica-Bold", color: GRUEN, marginTop: 6 },
   ampelGelb: { fontSize: 13, fontFamily: "Helvetica-Bold", color: GELB, marginTop: 6 },
   ampelRot: { fontSize: 13, fontFamily: "Helvetica-Bold", color: ROT, marginTop: 6 },
+  ampelUnbekannt: { fontSize: 13, fontFamily: "Helvetica-Bold", color: GRAU, marginTop: 6 },
   sectionTitle: { fontSize: 13, color: COBALT, fontFamily: "Helvetica-Bold", marginTop: 20, marginBottom: 6 },
   row: { flexDirection: "row", marginBottom: 3 },
   label: { width: 160, color: "#555" },
@@ -50,12 +52,14 @@ const styles = StyleSheet.create({
 function ampelLabel(ampel: Scores["ampel"]): string {
   if (ampel === "gruen") return "Grün – Gute Vermarktbarkeit";
   if (ampel === "gelb") return "Gelb – Eingeschränkte Vermarktbarkeit";
+  if (ampel === "unbekannt") return "Unbekannt – Unzureichende Datenlage";
   return "Rot – Schwierige Vermarktbarkeit";
 }
 
 function ampelStyle(ampel: Scores["ampel"]) {
   if (ampel === "gruen") return styles.ampelGruen;
   if (ampel === "gelb") return styles.ampelGelb;
+  if (ampel === "unbekannt") return styles.ampelUnbekannt;
   return styles.ampelRot;
 }
 
