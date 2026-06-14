@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { it, expect, vi } from "vitest";
 vi.mock("./wms", () => ({ wmsHasFeatureAtPoint: vi.fn() }));
 import { wmsHasFeatureAtPoint } from "./wms";
 import { fetchHochwasser } from "./hochwasser";
