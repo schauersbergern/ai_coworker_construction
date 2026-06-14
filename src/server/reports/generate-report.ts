@@ -53,9 +53,19 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
     return null;
   }
 
-  // Config aus dem Snapshot (reproduzierbar), Fallback auf Defaults bei Altbeständen.
-  const snapshot = franzConfigSchema.safeParse(report.configSnapshot);
-  const config = snapshot.success ? snapshot.data : franzDefaultConfig;
+  // Config aus dem Snapshot (reproduzierbar). Null-Snapshot (Altbestände) → still Defaults.
+  // Ein vorhandener, aber ungültiger Snapshot ist ein Problem (untergräbt Reproduzierbarkeit)
+  // → laut loggen, dann Defaults. Hinweis: Snapshots sind (noch) nicht migrationsbewusst;
+  // sobald franz.configVersion steigt, müssten ältere Snapshots vor der Validierung migriert werden.
+  let config = franzDefaultConfig;
+  if (report.configSnapshot != null) {
+    const parsed = franzConfigSchema.safeParse(report.configSnapshot);
+    if (parsed.success) {
+      config = parsed.data;
+    } else {
+      logError("report", "invalid config snapshot, falling back to defaults", parsed.error, { reportId, orgId });
+    }
+  }
 
   log("report", "start", { reportId, projectId: report.projectId });
   const startedAt = Date.now();
