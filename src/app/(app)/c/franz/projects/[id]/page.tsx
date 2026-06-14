@@ -12,7 +12,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const { id } = await params;
   const data = await loadProjectDetail(id);
   if (!data) notFound();
-  const { project, notes, photos, reports } = data;
+  const { project, notes, photos, reports, config } = data;
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:py-10 flex flex-col gap-8">
@@ -25,7 +25,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
       </header>
 
       <section className="card p-5 flex flex-col gap-4">
-        <h2 className="font-bold flex items-center gap-2">🎤 Sprachnotizen</h2>
+        <h2 className="font-bold flex items-center gap-2">{config.labels.notesHeading}</h2>
         <NoteRecorder projectId={project.id} />
         <NotesList
           projectId={project.id}
@@ -40,13 +40,13 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
       </section>
 
       <section className="card p-5 flex flex-col gap-4">
-        <h2 className="font-bold flex items-center gap-2">📷 Fotos</h2>
+        <h2 className="font-bold flex items-center gap-2">{config.labels.photosHeading}</h2>
         <PhotoUploader projectId={project.id} />
         <PhotoGallery projectId={project.id} photos={photos.map((p) => ({ id: p.id, fileKey: p.fileUrl }))} />
       </section>
 
       <section className="card p-5 flex flex-col gap-4">
-        <h2 className="font-bold flex items-center gap-2">📄 Dokumentation</h2>
+        <h2 className="font-bold flex items-center gap-2">{config.labels.docsHeading}</h2>
         <ExportButton projectId={project.id} />
         <ReportsList
           projectId={project.id}

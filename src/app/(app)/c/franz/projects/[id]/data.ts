@@ -4,6 +4,8 @@ import { getProject } from "@/server/projects/projects.service";
 import { listNotes } from "@/server/notes/notes.service";
 import { listPhotos } from "@/server/photos/photos.service";
 import { listReports } from "@/server/reports/reports.service";
+import { getResolvedCoworker } from "@/coworkers";
+import { franzDefaultConfig, type FranzConfig } from "@/coworkers/franz/config";
 
 export async function loadProjectDetail(projectId: string) {
   const session = await requireSession();
@@ -14,5 +16,7 @@ export async function loadProjectDetail(projectId: string) {
     listPhotos(session.orgId, projectId),
     listReports(session.orgId, projectId),
   ]);
-  return { project, notes, photos, reports };
+  const franz = await getResolvedCoworker(session.orgId, "franz");
+  const config = (franz?.config as FranzConfig) ?? franzDefaultConfig;
+  return { project, notes, photos, reports, config };
 }
