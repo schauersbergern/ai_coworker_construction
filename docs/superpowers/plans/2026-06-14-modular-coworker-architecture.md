@@ -651,14 +651,18 @@ DB-Wrapper werden integrationsnah über die echte Funktionssignatur abgesichert;
 
 - [ ] **Step 1: DB-Wrapper an `resolve.ts` anhängen**
 
-Am Ende von `src/coworkers/resolve.ts` ergänzen:
+Die zusätzlichen Imports an den **Anfang** von `src/coworkers/resolve.ts` zu den bestehenden Imports hinzufügen:
 
 ```ts
 import { prisma } from "@/server/db";
 import { getAllCoworkers, getCoworker } from "./registry";
 import { disabledCoworkers } from "./env";
 import type { ResolvedCoworker } from "./types";
+```
 
+Die folgenden Funktionen ans **Ende** der Datei anhängen:
+
+```ts
 export async function getResolvedCoworkers(orgId: string): Promise<ResolvedCoworker[]> {
   const rows = await prisma.orgModule.findMany({ where: { orgId } });
   const byId = new Map(rows.map((r) => [r.coworkerId, r]));
@@ -689,7 +693,7 @@ export async function isAvailable(orgId: string, id: string): Promise<boolean> {
 }
 ```
 
-> Hinweis: Die `import`-Zeilen am Dateiende sind in ES-Modulen zulässig (Hoisting); zur Sauberkeit dürfen sie auch an den Dateianfang verschoben werden. `orgId_coworkerId` ist der von Prisma generierte Name des `@@unique([orgId, coworkerId])`-Compound-Keys.
+> Hinweis: `orgId_coworkerId` ist der von Prisma generierte Name des `@@unique([orgId, coworkerId])`-Compound-Keys.
 
 - [ ] **Step 2: Typprüfung**
 
@@ -1556,19 +1560,9 @@ git commit -m "fix(jobs): config snapshot + controlled cancelled state for franz
 
 Demonstriert pro-Tenant-Anpassung im UI: die Section-Überschriften kommen aus der Franz-Config.
 
-- [ ] **Step 1: Config laden und Labels verwenden**
+- [ ] **Step 1: Config-Auflösung in den Daten-Loader ziehen**
 
-In `src/app/(app)/c/franz/projects/[id]/page.tsx` die resolved Config holen und die drei hartcodierten Überschriften ersetzen:
-
-```tsx
-import { getResolvedCoworker } from "@/coworkers";
-import type { FranzConfig } from "@/coworkers/franz/config";
-import { franzDefaultConfig } from "@/coworkers/franz/config";
-// ... innerhalb der Komponente, nach dem Laden von `data`:
-  const franz = await getResolvedCoworker(/* orgId aus loadProjectDetail-Session */ "", "franz");
-```
-
-Sauberer Weg: `loadProjectDetail` in `data.ts` zusätzlich die Franz-Config zurückgeben lassen, damit die Seite keine zweite Session-Auflösung braucht. In `src/app/(app)/c/franz/projects/[id]/data.ts`:
+Damit die Seite keine zweite Session-Auflösung braucht, gibt `loadProjectDetail` die Franz-Config mit zurück. In `src/app/(app)/c/franz/projects/[id]/data.ts`:
 
 ```ts
 import { getResolvedCoworker } from "@/coworkers";
