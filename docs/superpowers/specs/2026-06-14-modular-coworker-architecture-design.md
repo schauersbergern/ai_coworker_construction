@@ -1,7 +1,7 @@
 # Modulare KI-Mitarbeiter-Architektur — Design
 
 **Datum:** 2026-06-14
-**Status:** Genehmigt (Design)
+**Status:** Überarbeitet nach Review (Findings #1–#5 eingearbeitet) — wartet auf Freigabe
 **Branch:** `feat/modular-coworker-architecture`
 
 ## Problemstellung
@@ -88,18 +88,43 @@ export interface CoworkerManifest<C = unknown> {
   role: string;
   emoji: string;
   blurb: string;
-  /** Wird ein Mitarbeiter bei neu angelegten Orgs automatisch freigeschaltet? */
+  /**
+   * Reifegrad des Moduls im CODE (nicht pro Tenant!):
+   * - "active"     → fertig, kann pro Org freigeschaltet werden.
+   * - "comingSoon" → Teaser; KANN NICHT freigeschaltet werden, auch nicht per DB-Row.
+   * Trennt „technisch verfügbar" von „dieser Kunde hat es gebucht" (Entitlement).
+   */
+  lifecycle: "active" | "comingSoon";
+  /**
+   * Default-Entitlement für NEU angelegte Orgs (nur relevant bei lifecycle "active").
+   * false = exklusiv/opt-in: muss pro Org bewusst per OrgModule-Row aktiviert werden.
+   */
   enabledByDefault: boolean;
   /** Form der pro-Tenant-Anpassung (Inhalte & Texte). */
   configSchema: ZodType<C>;
   /** Basiswerte, die per Tenant-Override teil-überschrieben werden. */
   defaultConfig: C;
+  /**
+   * Ganzzahl, bei jeder breaking Schemaänderung erhöht. Steuert Config-Migrationen
+   * und das Versions-Stempeln gespeicherter Config-Snapshots. Siehe „Config-Evolution".
+   */
+  configVersion: number;
+  /** Migrationsfunktionen alt→neu, indexiert nach Quellversion. Optional. */
+  configMigrations?: Record<number, (old: unknown) => unknown>;
   /** "Öffnen"-Ziel auf dem Dashboard, z.B. "/c/franz". */
   entryPath: string;
   /** Hintergrundjobs/Events, die dieses Modul besitzt. Optional. */
   inngestFunctions?: InngestFunction.Any[];
 }
 ```
+
+**Drei orthogonale Zustände — strikt getrennt halten:**
+
+| Zustand | Ebene | Werte | Bedeutung |
+|---|---|---|---|
+| **lifecycle** | Code/Manifest | `active` / `comingSoon` | Ist das Modul fertig gebaut? `comingSoon` ist nie freischaltbar. |
+| **entitlement** | pro Org (DB) | `enabled` true/false | Hat dieser Kunde den Mitarbeiter gebucht? Nur bei `active` wirksam. |
+| **kill-switch** | global (Env) | in `DISABLED_COWORKERS` | Notabschaltung für alle (Provider-Störung), unabhängig von Buchung. |
 
 ### Registry
 
@@ -119,14 +144,15 @@ export function getAllCoworkers(): CoworkerManifest[];
 
 ```prisma
 model OrgModule {
-  id         String   @id @default(cuid())
-  orgId      String
-  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  coworkerId String              // entspricht CoworkerManifest.id, z.B. "franz"
-  enabled    Boolean  @default(true)
-  config     Json?               // Tenant-Overrides, validiert gegen configSchema
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  coworkerId    String           // entspricht CoworkerManifest.id, z.B. "franz"
+  enabled       Boolean  @default(true)
+  config        Json?            // Tenant-Overrides, validiert gegen configSchema
+  configVersion Int      @default(0) // Schemaversion, gegen die `config` geschrieben wurde
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([orgId, coworkerId])
   @@index([orgId])
@@ -135,44 +161,107 @@ model OrgModule {
 
 `Organization` erhält die Gegenrelation `modules OrgModule[]`.
 
+**Job-Records: Config-Snapshot + terminaler Abbruch-Zustand** (siehe Findings #3, #4).
+Hintergrundjob-erzeugende Records (`Note`, `Report`) erhalten:
+
+```prisma
+enum TranscriptStatus { pending  done  failed  cancelled }   // + cancelled
+enum ReportStatus     { pending  done  failed  cancelled }   // + cancelled
+
+model Note {
+  // ... bestehend ...
+  configSnapshot     Json?    // effektive Franz-Config beim Enqueue (reproduzierbarer Retry)
+  configVersion      Int?     // Version dieses Snapshots
+}
+
+model Report {
+  // ... bestehend ...
+  configSnapshot     Json?    // effektive Franz-Config beim Anlegen
+  configVersion      Int?     // Version dieses Snapshots
+}
+```
+
+`cancelled` ist terminal (nicht `pending`) und entsteht ausschließlich durch einen
+kontrollierten Übergang im Job, wenn der Coworker zwischen Enqueue und Ausführung
+deaktiviert oder kill-switched wurde. Siehe „Hintergrundjobs".
+
 ### Auflösung zur Laufzeit (`resolve.ts`)
 
 ```ts
+type Availability =
+  | "available"    // active, entitled, nicht kill-switched → nutzbar
+  | "comingSoon"   // lifecycle "comingSoon" → Teaser, nicht buchbar
+  | "notEntitled"  // active, aber diese Org hat es nicht gebucht
+  | "killSwitched" // global per Env abgeschaltet
+
 type ResolvedCoworker<C> = {
   manifest: CoworkerManifest<C>;
-  enabled: boolean;
-  config: C;            // deepMerge(defaultConfig, OrgModule.config), per Zod validiert
+  availability: Availability;
+  config: C;            // nur gesetzt wenn availability === "available"
 };
 
-getResolvedCoworkers(orgId): Promise<ResolvedCoworker[]>   // alle, mit enabled-Flag
-getEnabledCoworkers(orgId): Promise<ResolvedCoworker[]>    // nur enabled === true
+getResolvedCoworkers(orgId): Promise<ResolvedCoworker[]>   // ALLE, je mit availability
+getAvailableCoworkers(orgId): Promise<ResolvedCoworker[]>  // nur availability === "available"
 getResolvedCoworker(orgId, id): Promise<ResolvedCoworker | null>
+isAvailable(orgId, id): Promise<boolean>                   // Convenience für Guards
 ```
 
-Regeln:
-- **enabled** = `OrgModule.enabled`, falls Row existiert; sonst Fallback auf `manifest.enabledByDefault`.
-- **config** = `deepMerge(manifest.defaultConfig, OrgModule.config ?? {})`, anschließend
-  `manifest.configSchema.parse(...)`. Schlägt die Validierung fehl → Log + Fallback auf
-  `defaultConfig` (kein harter Crash für andere Mitarbeiter).
-- **Release/Kill-Switch-Schicht** (separat von Entitlements): eine Env-Konstante
-  `DISABLED_COWORKERS` (kommagetrennte IDs) blendet Mitarbeiter global aus —
-  für unfertige Module oder Provider-Störungen. Wird VOR dem Entitlement-Check angewandt.
+Auflösungsreihenfolge je Mitarbeiter (erste zutreffende Regel gewinnt):
+1. `lifecycle === "comingSoon"` → **`comingSoon`** (egal welche DB-Rows existieren —
+   ein nicht fertig gebauter Mitarbeiter ist niemals freischaltbar).
+2. `id ∈ DISABLED_COWORKERS` (Env) → **`killSwitched`**.
+3. Entitlement bestimmen: `OrgModule.enabled` falls Row existiert, sonst `manifest.enabledByDefault`.
+   - `false` → **`notEntitled`**.
+   - `true`  → **`available`** + Config auflösen.
 
-**Exklusiver Mitarbeiter für einen Kunden:** Manifest mit `enabledByDefault: false` +
-genau eine `OrgModule`-Row mit `enabled: true` für diese eine Org. Kein Sondermechanismus.
+**Config-Auflösung** (nur bei `available`):
+- Falls `OrgModule.config` vorhanden und `OrgModule.configVersion < manifest.configVersion`:
+  `configMigrations` der Reihe nach anwenden (siehe „Config-Evolution").
+- `deepMerge(manifest.defaultConfig, migratedOverride ?? {})`, dann `configSchema.parse(...)`.
+- Schlägt die Validierung fehl → **laut** loggen (Org-ID, Coworker, Zod-Fehler) und auf
+  `defaultConfig` zurückfallen. Der Fallback ist eine Sicherung, kein stiller Normalzustand —
+  er wird auf Fehler-Level geloggt, damit kaputte Kundenkonfig sichtbar wird.
+
+**Exklusiver Mitarbeiter für einen Kunden:** Manifest `lifecycle: "active"`,
+`enabledByDefault: false` + genau eine `OrgModule`-Row mit `enabled: true` für diese Org.
+
+**Beziehung der Begriffe:** `lifecycle` ist Code-Zustand (alle Tenants gleich),
+`availability` ist das pro-Org-Ergebnis aus lifecycle + Entitlement + kill-switch.
 
 ### Durchsetzung (Defense in Depth)
 
-Das Entitlement-Gate greift an drei Stellen, damit deaktivierte Module unerreichbar sind,
-nicht nur unsichtbar:
+**Grundsatz:** Das Page-Layout ist KEIN Sicherheits-Gate — es schützt nur das gerenderte
+UI unter `/c/[coworker]/*`. API-Routen, Server Actions, Dateidownloads und Inngest-Jobs
+laufen außerhalb dieses Layouts und MÜSSEN jeweils eigenständig gegated werden. Das Gate
+sitzt in der **Service-/Route-Schicht**, nicht in der UI.
 
-1. **Dashboard** (`src/app/(app)/page.tsx`) — rendert die Karten aus
-   `getEnabledCoworkers(orgId)` statt aus dem hartcodierten `EMPLOYEES`-Array.
-   Deaktivierte/„bald"-Mitarbeiter werden über Manifest-Metadaten dargestellt.
-2. **Routes / Server-Actions** — `requireCoworker(orgId, "franz")` (in `guard.ts`) ruft
-   `notFound()`/wirft, wenn nicht freigeschaltet. Im Layout des Coworker-Routesegments verankert.
-3. **Inngest-Funktionen** — verarbeiten nur Events von Orgs, für die der Mitarbeiter
-   freigeschaltet ist (Guard am Funktionsanfang).
+`guard.ts` stellt bereit:
+```ts
+requireAvailable(orgId, coworkerId): Promise<ResolvedCoworker>  // wirft 403/404 wenn nicht "available"
+assertProjectCoworker(orgId, projectId, coworkerId)            // Ressource→Coworker-Zuordnung
+```
+
+Das Gate greift an **fünf** Stellen:
+
+1. **Dashboard** (`src/app/(app)/page.tsx`) — Karten aus `getResolvedCoworkers(orgId)`:
+   `available` → „Öffnen", `comingSoon` → „bald verfügbar", `notEntitled`/`killSwitched`
+   → nicht gerendert. Ersetzt das hartcodierte `EMPLOYEES`-Array.
+2. **Coworker-Routesegment** (`/c/[coworker]/layout.tsx`) — `requireAvailable` für die UX
+   (sauberes 404 statt kaputter Seite). Reine Bequemlichkeit, kein Verlass darauf.
+3. **API-Routen** — JEDER Franz-Handler ruft `requireAvailable(orgId, "franz")` am Anfang.
+   Betrifft konkret: `api/projects/route.ts`, `api/projects/[id]/notes/**`,
+   `api/projects/[id]/photos/**`, `api/projects/[id]/reports/**` inkl. der `retry`-Routen.
+4. **Server Actions** — `projects/new/action.ts` und alle weiteren Franz-Actions gaten
+   ebenso am Anfang (Server Actions sind eigene Endpunkte, nicht vom Layout geschützt).
+5. **Dateidownloads** (`api/files/[...key]/route.ts`) — zusätzlich zur bestehenden
+   Org-Scope-Prüfung: die zur Datei gehörende Ressource (Note/Photo/Report → Project → Org)
+   ermitteln und `requireAvailable(orgId, "franz")` prüfen. Verhindert, dass Dateien eines
+   deaktivierten Mitarbeiters weiter ausgeliefert werden.
+6. **Inngest-Funktionen** — Guard am Funktionsanfang (siehe „Hintergrundjobs" für den
+   definierten Abbruchpfad).
+
+Ein **Integrationstest** verifiziert, dass bei deaktiviertem Franz jeder dieser Endpunkte
+403/404 liefert — nicht nur das Dashboard. Damit ist „unsichtbar ≠ unerreichbar" abgesichert.
 
 ### Routing
 
@@ -205,53 +294,117 @@ gelesen statt aus Konstanten:
 `franz/config.ts` definiert das Zod-Schema dieser Werte samt Defaults (= heutiges Verhalten,
 damit die Migration verhaltensneutral ist).
 
+### Hintergrundjobs (Snapshot + kontrollierter Abbruch)
+
+Transkription (Note) und Berichtserstellung (Report) laufen asynchron via Inngest. Zwischen
+Enqueue und Ausführung kann sich der Zustand ändern. Zwei Regeln:
+
+**Config-Snapshot beim Enqueue (Finding #4).** Beim Anlegen der Note/des Reports wird die
+zu diesem Zeitpunkt `available` aufgelöste effektive Config in `configSnapshot` gespeichert,
+zusammen mit `configVersion`. Der Job liest die Config **ausschließlich aus dem Snapshot**,
+nicht erneut zur Laufzeit. Damit erzeugen verzögerte Ausführung und Retry reproduzierbare
+Ergebnisse, auch wenn Prompts/Branding zwischenzeitlich geändert wurden. Retry verwendet
+denselben Snapshot.
+
+**Kontrollierter Abbruch statt Hängenbleiben (Finding #3).** Am Funktionsanfang prüft der
+Job `isAvailable(orgId, "franz")`. Ist der Mitarbeiter nicht mehr `available` (deaktiviert
+oder kill-switched):
+- Der Record wird **kontrolliert auf `cancelled`** gesetzt (terminal), nicht auf `pending`
+  belassen. Begründung wird geloggt.
+- Die UI zeigt `cancelled` mit klarer Meldung („Mitarbeiter derzeit deaktiviert").
+- **Retry-Politik:** `cancelled` ist retry-fähig, sobald der Mitarbeiter wieder `available`
+  ist; ein Retry bei weiterhin nicht-verfügbarem Coworker wird abgelehnt. (Im Unterschied
+  zu `failed`, das einen echten Verarbeitungsfehler markiert.)
+- Idempotenz bleibt gewahrt: bereits auf `done`/`cancelled` stehende Records werden nicht
+  erneut verarbeitet.
+
+### Config-Evolution (Versionierung & Migration)
+
+Schemaänderungen dürfen bestehende Tenant-Overrides nicht still entwerten (Finding #5).
+
+- **`configVersion`** im Manifest wird bei jeder breaking Änderung erhöht. Gespeicherte
+  Overrides (`OrgModule.configVersion`) und Snapshots (`Note/Report.configVersion`) tragen
+  die Version, gegen die sie geschrieben wurden.
+- **Migration beim Lesen:** liegt eine ältere Version vor, werden `configMigrations` in
+  aufsteigender Reihenfolge angewandt, bevor gemerged/validiert wird. Optional schreibt ein
+  Wartungsjob migrierte Overrides zurück (lazy-on-read genügt für den MVP).
+- **Startup-Selbstvalidierung:** beim App-Start (bzw. im Test) wird für jedes Manifest
+  geprüft, dass `configSchema.parse(defaultConfig)` erfolgreich ist. Ein Manifest mit
+  Default, der sein eigenes Schema verletzt, ist ein harter Startfehler — verhindert, dass
+  ein fehlerhaftes Default-Set unbemerkt alle Tenants auf einen ungültigen Zustand zwingt.
+- Ein **fehlgeschlagener Override-Parse** nach versuchter Migration ist KEIN stiller
+  Default-Fallback im Verborgenen: er wird auf Error-Level mit Org-/Coworker-Kontext
+  geloggt (siehe `resolve.ts`), sodass kaputte Kundenkonfig auffällt und korrigiert wird.
+
 ## Datenfluss (Beispiel: Dashboard-Aufruf)
 
 ```
 Request (User → Org-Kontext aus Session)
-  → getEnabledCoworkers(orgId)
+  → getResolvedCoworkers(orgId)
       → getAllCoworkers() (Registry)
       → OrgModule-Rows der Org laden
-      → je Mitarbeiter: enabled auflösen, DISABLED_COWORKERS anwenden, config mergen+validieren
-  → Dashboard rendert Karten der enabled-Mitarbeiter (entryPath als Link)
+      → je Mitarbeiter: availability auflösen (lifecycle → kill-switch → entitlement),
+        bei "available" config migrieren+mergen+validieren
+  → Dashboard: "available" → Öffnen, "comingSoon" → bald, sonst nicht gerendert
 ```
 
 ```
-Request (User → /c/franz/projects/123)
-  → layout.tsx: requireCoworker(orgId, "franz") → 404 falls nicht freigeschaltet
-  → Franz-UI lädt effectiveConfig + Domänendaten
+Request (User → POST /api/projects/123/reports)  // API, NICHT vom Layout geschützt
+  → Handler: requireAvailable(orgId, "franz") → 403/404 falls nicht available
+  → Report anlegen + effektive Config als configSnapshot (+configVersion) speichern
+  → Inngest-Event enqueuen
+  → Job-Start: isAvailable? nein → Record auf "cancelled"; ja → Snapshot-Config nutzen
 ```
 
 ## Fehlerbehandlung
 
-- **Ungültige Tenant-Config** → loggen, auf `defaultConfig` zurückfallen; andere Mitarbeiter
-  bleiben unberührt. Kein App-weiter Crash.
+- **Ungültige Tenant-Config** (auch nach Migration) → Error-Level loggen (Org/Coworker/Zod),
+  auf `defaultConfig` zurückfallen; andere Mitarbeiter bleiben unberührt. Kein App-weiter Crash.
+- **Manifest-Default verletzt eigenes Schema** → harter Startfehler (Startup-Selbstvalidierung).
 - **Unbekannte `coworkerId`** in Route → `notFound()`.
 - **Duplikat-ID** bei Registrierung → harter Fehler beim Start (Programmierfehler, früh sichtbar).
-- **Inngest-Event für nicht-freigeschaltete Org** → Funktion bricht früh und idempotent ab.
+- **Coworker zwischen Enqueue und Job-Start deaktiviert/kill-switched** → Record kontrolliert
+  auf `cancelled` (terminal), niemals dauerhaft `pending`; idempotent.
 
 ## Teststrategie
 
 - **Registry:** Registrierung, Duplikat-Erkennung, `getAll/get`.
-- **resolve.ts:** enabled-Auflösung (Row vorhanden/abwesend → Fallback auf `enabledByDefault`);
-  Config-Merge (default + partieller Override); Validierungs-Fallback bei kaputter Config;
-  `DISABLED_COWORKERS`-Vorrang.
-- **guard.ts:** freigeschaltet → ok; nicht freigeschaltet → `notFound()`/throw.
+- **resolve.ts:** availability-Matrix (lifecycle `comingSoon` → nie buchbar; kill-switch-Vorrang;
+  Entitlement-Row vorhanden/abwesend → Fallback auf `enabledByDefault`); Config-Merge
+  (default + partieller Override); Migration alt→neu vor Validierung; lauter Error-Log + Fallback
+  bei kaputter Config.
+- **guard.ts:** `available` → ok; `comingSoon`/`notEntitled`/`killSwitched` → 403/404.
+- **API-Bypass-Test (Finding #1):** bei deaktiviertem Franz liefern ALLE Franz-Endpunkte
+  (projects/notes/photos/reports inkl. retry), Server Actions und `api/files/[...key]`
+  403/404 — nicht nur das Dashboard.
+- **Job-Lifecycle (Finding #3):** Coworker nach Enqueue deaktiviert → Record wird `cancelled`,
+  nicht `pending`; Retry abgelehnt solange nicht `available`, erlaubt sobald wieder `available`.
+- **Config-Snapshot (Finding #4):** Job nutzt `configSnapshot`, nicht Live-Config; geänderte
+  Live-Config beeinflusst laufenden/retry-ten Job nicht.
+- **Config-Evolution (Finding #5):** Startup-Selbstvalidierung schlägt bei kaputtem Default an;
+  alter Override wird vor Validierung migriert.
 - **Migration verhaltensneutral:** bestehende Franz-Tests (notes/photos/reports/docgen/pdf)
   laufen nach dem Verschieben unverändert grün; Default-Config reproduziert heutiges Verhalten.
 - **Grenzregel:** dependency-cruiser-Check schlägt bei modulübergreifendem Interna-Import an.
 
 ## Migrationsschritte (grobe Reihenfolge, Detail folgt im Plan)
 
-1. Prisma: `OrgModule` + Relation, Migration, Seed (Franz für bestehende Orgs `enabled: true`).
-2. `coworkers/`-Fundament: `types`, `registry`, `resolve`, `guard`, `index`.
-3. Franz-Manifest + `config.ts` (Defaults = heutiges Verhalten).
+1. Prisma: `OrgModule` (+ `configVersion`) + Relation; `cancelled` zu `TranscriptStatus`/
+   `ReportStatus`; `configSnapshot`/`configVersion` an `Note`/`Report`. Migration + Seed
+   (Franz für bestehende Orgs `enabled: true`).
+2. `coworkers/`-Fundament: `types` (mit `lifecycle`/`configVersion`), `registry`, `resolve`
+   (availability-Matrix + Config-Migration), `guard` (`requireAvailable`/`isAvailable`),
+   `index`, Startup-Selbstvalidierung.
+3. Franz-Manifest (`lifecycle: "active"`) + `config.ts` (Defaults = heutiges Verhalten).
 4. Franz-Code unter `coworkers/franz/{server,ui}` einsortieren (verhaltensneutral, Imports anpassen).
-5. Routing nach `/c/franz/*` + Guard-Layout; Dashboard auf Registry umstellen.
-6. Franz Config-Konsum (Prompts/Branding/Labels aus `effectiveConfig`).
-7. Inngest-Guard.
-8. Mira/Theo Stub-Manifeste (`enabledByDefault: false`).
-9. dependency-cruiser-Grenzregel + CI.
+5. Routing nach `/c/franz/*` + Guard-Layout; Dashboard auf `getResolvedCoworkers` umstellen
+   (available/comingSoon/sonst).
+6. **Guards in alle Franz-API-Routen, Server Actions und `api/files/[...key]`** (Finding #1).
+7. Franz Config-Konsum (Prompts/Branding/Labels aus `effectiveConfig`).
+8. Inngest: Snapshot beim Enqueue, `isAvailable`-Guard + `cancelled`-Übergang im Job
+   (Findings #3, #4); Retry-Politik in den `retry`-Routen.
+9. Mira/Theo Stub-Manifeste (`lifecycle: "comingSoon"`).
+10. dependency-cruiser-Grenzregel + CI.
 
 ## Offene Punkte für spätere Specs
 
