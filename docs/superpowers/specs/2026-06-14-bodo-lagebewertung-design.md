@@ -133,19 +133,15 @@ model Assessment {
   orgId      String
   org        Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   address    String                       // Roh-Eingabe
-  lat        Float?
+  lat        Float?                        // aus Geocoding (für Karte/Geo-Queries)
   lon        Float?
-  district   String?
-  plz        String?
-  elevation  Float?                        // m ü. NHN
   status     AssessmentStatus @default(pending)
-  profile    Json?                         // normalisierte DataPoints
+  profile    Json?                         // normalisierte DataPoints (inkl. district/plz/elevation)
   scores     Json?                         // Ampel + Teilscores + Zielgruppen
   narrative  String?                       // Mikrolage-Text
   configSnapshot Json                      // Config zum Enqueue-Zeitpunkt
   configVersion  Int          @default(0)
   error      String?
-  pdfPath    String?                       // im object storage
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
@@ -154,6 +150,11 @@ model Assessment {
 ```
 
 `Organization` erhält die Gegenrelation `assessments Assessment[]`.
+
+**Single Source of Truth:** Außer den denormalisierten Koordinaten (`lat`/`lon`, billig &
+indizierbar für Karte/Geo-Queries) leben alle Werte — inkl. `district`, `plz`, `elevation`
+— als `DataPoint`s im `profile`-JSON. Keine redundanten Spalten, die mit dem Profil
+auseinanderlaufen könnten. PDF wird on-demand frisch gerendert (kein `pdfPath`-Cache im MVP).
 
 ---
 
@@ -164,18 +165,22 @@ model Assessment {
    `assessment/requested`.
 2. **Job (`run-assessment`):** atomarer Übergang `pending → running` (claim, gegen
    Doppel-Jobs), Re-Check Verfügbarkeit (sonst `cancelled`).
-3. **Geocoding** (Nominatim) → lat/lon/district/plz; **DGM1** → elevation. Schlägt
-   Geocoding fehl → `failed` mit Grund (ohne Koordinaten kein Profil).
-4. **Fan-out:** `regionProvider.sourcesFor(coord)` → alle Adapter **parallel** mit
+3. **Geocoding** (Nominatim) → lat/lon (+ district/plz, die als DataPoints ins Profil
+   fließen). Schlägt Geocoding fehl → `failed` mit Grund (ohne Koordinaten kein Profil).
+4. **Fan-out:** `regionProvider.sourcesFor(coord)` → alle Adapter **parallel** (inkl.
+   DGM1-Höhe als regulärer Adapter) mit
    per-Source-Timeout. Jeder Adapter liefert `DataPoint` (Wert **oder**
    `status: unavailable` + Grund). Eine fehlende Quelle bricht den Job nie ab.
 5. **Verdichten** → `LocationProfile`.
 6. **Scoring** (rein, deterministisch) → `scores`.
 7. **Narrative** (Claude, `configSnapshot.narrative.systemPrompt`) → `narrative`.
    Schlägt Claude fehl → `narrative = null`, Job bleibt `ready` (Text optional).
-8. **Persistieren** → `profile`, `scores`, `narrative`, status `ready`.
-9. **PDF:** on-demand per Export-Button (rendert aus gespeichertem Profil/Scores,
-   wie Franz-Report-Download), `pdfPath` gecacht.
+8. **Persistieren** → `lat`/`lon`, `profile`, `scores`, `narrative`, status `ready`.
+9. **PDF:** on-demand per Export-Button — eine gegatete `GET`-Route rendert das Dossier
+   bei jedem Abruf **frisch** aus dem gespeicherten `profile`/`scores`/`narrative` und
+   streamt `application/pdf` (kein Persistieren/Caching im MVP). Hinweis: Franz erzeugt
+   Berichte asynchron über einen Job und legt das PDF ab; Bodo rendert synchron auf
+   Abruf — bewusst einfacher, da das Profil bereits fertig persistiert ist.
 
 ---
 
@@ -240,8 +245,10 @@ breaking Änderungen erhöhen ihn + Migration.
 - **Idempotenz:** terminale Zustände (`ready|failed|cancelled`) = No-op bei Re-Trigger.
 - **Verfügbarkeits-Abbruch:** Coworker nicht verfügbar → `cancelled` (nicht hängen).
 - **Config-Snapshot:** Job nutzt `configSnapshot` vom Enqueue (reproduzierbare Retries).
-- **Atomarer Claim:** `pending → running` bzw. Retry `failed|cancelled → pending`
-  atomar (kein Doppel-Job).
+- **Atomarer Claim:** `pending → running` (`claimForRun` via bedingtem `updateMany` —
+  kein Doppel-Job). Ein Retry-Pfad (`failed|cancelled → pending`, analog Franz
+  `claimReportForRetry`) ist vorgesehen, aber **bewusst nicht Teil des MVP** (keine
+  Retry-UI in Plan 1–3).
 - **Rate-Limits:** MVP nutzt öffentliche Endpoints mit konservativen Timeouts +
   einfachem In-Memory-Throttle für Nominatim (1 req/s Policy). Self-Host-Pfad in §11.
 
@@ -288,8 +295,10 @@ Daten (DSGVO-schonend by design).
 
 1. `prisma/schema.prisma` — `Assessment` + `AssessmentStatus` + `Organization.assessments`; Migration.
 2. `src/coworkers/index.ts` — `registerCoworker(bodoManifest)`.
-3. `src/inngest/functions.ts` — `runAssessment` als Inngest-Function registrieren;
-   in `functions[]` aufnehmen; in `bodoManifest.inngestFunctions` referenzieren.
+3. `src/inngest/functions.ts` — `runAssessment` als Inngest-Function registrieren und
+   in `functions[]` aufnehmen (wie Franz). **Nicht** in `bodoManifest.inngestFunctions`
+   referenzieren: das Feld wird nirgends ausgewertet und ein Import von `@/inngest/functions`
+   im Manifest erzeugte einen Import-Zyklus.
 4. `scripts/seed-coworkers.ts` — `OrgModule`-Row für „bodo" (analog Franz).
 5. Dashboard (`src/app/(app)/page.tsx`) — keine Änderung nötig (rendert Registry).
 6. `package.json` — `fflate` + `scripts.refresh:gtfs`.
@@ -303,7 +312,9 @@ Es existiert noch **kein Code**, nur Wissens-Artefakte:
 | Quelle (dieses Projekt) | Ziel im Repo | Zweck |
 |---|---|---|
 | `docs/superpowers/specs/2026-06-14-bodo-lagebewertung-design.md` | gleiches Verzeichnis | diese Spec |
-| `docs/superpowers/plans/2026-06-14-bodo-lagebewertung.md` | gleiches Verzeichnis | Implementierungsplan |
+| `docs/superpowers/plans/2026-06-14-bodo-plan-1-foundation.md` | gleiches Verzeichnis | Plan 1: Foundation |
+| `docs/superpowers/plans/2026-06-14-bodo-plan-2-sources.md` | gleiches Verzeichnis | Plan 2: Datenquellen |
+| `docs/superpowers/plans/2026-06-14-bodo-plan-3-scoring-pdf.md` | gleiches Verzeichnis | Plan 3: Scoring/PDF |
 | `docs/bodo-datenquellen.md` | `docs/` | verifizierte Endpoint-/Lizenz-Registry |
 | `Datenpunkte-Checkliste.md` | `docs/bodo-feldkatalog.md` | Feldkatalog |
 | Screenshots (optional) | `docs/reference/bodo-vorbild/` | visuelle Referenz |

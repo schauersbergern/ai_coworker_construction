@@ -4,7 +4,7 @@
 
 **Goal:** Aus dem `LocationProfile` deterministische Scores berechnen, einen Claude-Mikrolage-Text erzeugen und ein PDF-Dossier exportierbar machen — der Job schreibt `scores` + `narrative`, die Detailseite rendert Scores und bietet PDF-Download.
 
-**Architecture:** Reine Scoring-Funktionen (keine Seiteneffekte, voll getestet) + Narrative-Port mit Claude-Implementierung (Anthropic SDK, wie Franz docgen) + React-PDF-Dossier (wie `franz/server/pdf`). Job wird um Scoring/Narrative erweitert; PDF on-demand wie Franz-Report-Download.
+**Architecture:** Reine Scoring-Funktionen (keine Seiteneffekte, voll getestet) + Narrative-Port mit Claude-Implementierung (Anthropic SDK, wie Franz docgen) + React-PDF-Dossier (Komponenten-/Renderer-Aufbau analog `franz/server/pdf`). Job wird um Scoring/Narrative erweitert. **Unterschied zu Franz:** Franz erzeugt Berichte asynchron über einen Job und legt das PDF im Storage ab; Bodo rendert das Dossier **synchron on-demand** in einer `GET`-Route aus dem bereits persistierten `profile`/`scores`/`narrative` und streamt es (kein Storage/Cache, kein `pdfPath`) — bewusst einfacher.
 
 **Tech Stack:** TypeScript, `@anthropic-ai/sdk`, `@react-pdf/renderer`, `@/server/storage`, Vitest.
 
@@ -180,11 +180,29 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { NarrativeGenerator } from "./narrative";
 
+// Konstruktion 1:1 wie franz/server/docgen/claude-doc-generator.ts: API-Key UND Modell
+// kommen aus der Umgebung (kein hartkodiertes Modell), und fehlen sie, wirft der
+// Konstruktor sauber. So bleibt die Anthropic-Nutzung im Repo konsistent/konfigurierbar.
 export class ClaudeNarrativeGenerator implements NarrativeGenerator {
-  private client = new Anthropic();
+  private readonly client: Anthropic;
+  private readonly model: string;
+
+  constructor() {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY is not set. Please configure it in your environment.");
+    }
+    const model = process.env.ANTHROPIC_MODEL;
+    if (!model) {
+      throw new Error("ANTHROPIC_MODEL is not set. Please configure it in your environment.");
+    }
+    this.client = new Anthropic({ apiKey });
+    this.model = model;
+  }
+
   async generate({ systemPrompt, userContent }: { systemPrompt: string; userContent: string }): Promise<string> {
     const msg = await this.client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: this.model,
       max_tokens: 1500,
       system: systemPrompt,
       messages: [{ role: "user", content: `Standortdaten (JSON):\n\n${userContent}` }],
@@ -196,7 +214,7 @@ export class ClaudeNarrativeGenerator implements NarrativeGenerator {
 
 - [ ] **Step 4: Run → PASS. Step 5: Commit** `feat(bodo): narrative port + claude generator`.
 
-> Modell-ID gegen `franz/server/docgen/claude-doc-generator.ts` abgleichen und dieselbe verwenden (Konsistenz mit bestehender Anthropic-Nutzung). Bei Anthropic-Fehler darf der Job `ready` bleiben mit `narrative=null` (siehe Task 4).
+> Modell + Key kommen aus `ANTHROPIC_MODEL` / `ANTHROPIC_API_KEY` (identisch zu `franz/server/docgen/claude-doc-generator.ts`) — nicht hartkodieren. Bei Anthropic-Fehler darf der Job `ready` bleiben mit `narrative=null` (siehe Task 4).
 
 ---
 
@@ -210,7 +228,7 @@ export class ClaudeNarrativeGenerator implements NarrativeGenerator {
 it("computes scores and narrative on the happy path", async () => {
   const a = await createAssessment("org1", "addr", { snapshot: { narrative: { systemPrompt: "SP" }, scoring: { weights: {} }, sources: {} }, version: 0 });
   await runAssessment(a.id, { ...deps, generateNarrative: vi.fn(async () => "Text") });
-  const after = await db.assessment.findUnique({ where: { id: a.id } });
+  const after = await prisma.assessment.findUnique({ where: { id: a.id } });
   expect(after?.status).toBe("ready");
   expect(after?.narrative).toBe("Text");
   expect(after?.scores).toBeTruthy();
@@ -219,7 +237,7 @@ it("computes scores and narrative on the happy path", async () => {
 it("stays ready with null narrative if generator throws", async () => {
   const a = await createAssessment("org1", "addr", { snapshot: { narrative: { systemPrompt: "SP" }, scoring: { weights: {} }, sources: {} }, version: 0 });
   await runAssessment(a.id, { ...deps, generateNarrative: vi.fn(async () => { throw new Error("anthropic down"); }) });
-  const after = await db.assessment.findUnique({ where: { id: a.id } });
+  const after = await prisma.assessment.findUnique({ where: { id: a.id } });
   expect(after?.status).toBe("ready");
   expect(after?.narrative).toBeNull();
 });
@@ -243,7 +261,7 @@ await markReady(id, {
   profile: profile as unknown as object,
   scores: scores as unknown as object,
   narrative,
-  lat: geo.lat, lon: geo.lon, district: geo.district, plz: geo.plz, elevation: geo.elevation,
+  lat: geo.lat, lon: geo.lon,
 });
 ```
 
@@ -310,9 +328,11 @@ export async function renderDossier(props: DossierProps): Promise<Buffer> {
 
 ## Task 5: PDF-Export-Route + Button (on-demand)
 
-**Files:** Create `src/app/(app)/c/bodo/standorte/[id]/export-button.tsx`, `src/app/(app)/c/bodo/standorte/[id]/dossier/route.ts` (Referenz: Franz Export/`export-button.tsx`, Report-Download). Modify `[id]/page.tsx`.
+**Files:** Create `src/app/(app)/c/bodo/standorte/[id]/export-button.tsx`, `src/app/(app)/c/bodo/standorte/[id]/dossier/route.ts`. Modify `[id]/page.tsx`. (UI-Muster für den Button: Franz `export-button.tsx`; der Dossier-Endpunkt selbst ist aber eine eigene synchrone Render-Route, nicht Franz' async Report-Erzeugung.)
 
-- [ ] **Step 1: Route** — `GET` gated mit `isAvailable`, lädt org-scoped Assessment, rendert (oder liest gecachtes) PDF, streamt `application/pdf`.
+> **Gating-Hinweis:** `layout.tsx` schützt **keine** Route-Handler (`route.ts`) — Layouts umschließen nur Pages. Die Dossier-Route MUSS daher selbst `isAvailable(orgId, "bodo")` prüfen (Defense-in-Depth, siehe Spec §9). Genau das macht Step 1.
+
+- [ ] **Step 1: Route** — `GET` gated mit `isAvailable`, lädt org-scoped Assessment, rendert das PDF frisch (kein Cache), streamt `application/pdf`.
 
 ```ts
 import { NextResponse } from "next/server";

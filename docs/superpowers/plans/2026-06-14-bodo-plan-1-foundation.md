@@ -52,25 +52,26 @@ model Assessment {
   orgId          String
   org            Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   address        String
-  lat            Float?
+  lat            Float?           // aus Geocoding (Karte/Geo-Queries)
   lon            Float?
-  district       String?
-  plz            String?
-  elevation      Float?
   status         AssessmentStatus @default(pending)
-  profile        Json?
+  profile        Json?            // normalisierte DataPoints (inkl. district/plz/elevation)
   scores         Json?
   narrative      String?
   configSnapshot Json
   configVersion  Int              @default(0)
   error          String?
-  pdfPath        String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
   @@index([orgId])
 }
 ```
+
+> **Single Source of Truth:** Nur `lat`/`lon` werden denormalisiert; `district`, `plz`,
+> `elevation` und alle übrigen Werte leben als `DataPoint`s im `profile`-JSON (keine
+> Spalten, die mit dem Profil divergieren). Kein `pdfPath` — das PDF wird on-demand
+> frisch gerendert (Plan 3).
 
 Im bestehenden `model Organization { ... }` die Gegenrelation ergänzen:
 
@@ -260,7 +261,11 @@ export const bodoManifest: CoworkerManifest<BodoConfig> = {
   defaultConfig: bodoDefaultConfig,
   configVersion: 0,
   entryPath: "/c/bodo/standorte",
-  // inngestFunctions werden in Task 7 ergänzt.
+  // KEIN inngestFunctions hier: Das Feld wird nirgends ausgewertet (nur in types.ts
+  // deklariert) — die Job-Registrierung läuft ausschließlich über das functions[]-Array
+  // in src/inngest/functions.ts (Task 7). Ein Import von @/inngest/functions im Manifest
+  // erzeugte zudem einen Zyklus (index → manifest → functions → @/coworkers → index).
+  // Franz hält es genauso (franz/manifest.ts referenziert inngestFunctions nicht).
 };
 ```
 
@@ -507,18 +512,18 @@ git commit -m "feat(bodo): region provider seam with bayern provider"
 
 ```ts
 import { describe, it, expect, beforeEach } from "vitest";
-import { db } from "@/server/db";
+import { prisma } from "@/server/db";
 import { createAssessment, listAssessments, getAssessment } from "./assessment.service";
 import { claimForRun } from "./assessment.internal";
 
 async function makeOrg(id: string) {
-  await db.organization.create({ data: { id, name: id } });
+  await prisma.organization.create({ data: { id, name: id } });
 }
 
 describe("assessment.service", () => {
   beforeEach(async () => {
-    await db.assessment.deleteMany();
-    await db.organization.deleteMany();
+    await prisma.assessment.deleteMany();
+    await prisma.organization.deleteMany();
   });
 
   it("creates an org-scoped pending assessment with a config snapshot", async () => {
@@ -556,7 +561,7 @@ Expected: FAIL — Service fehlt.
 
 ```ts
 import "server-only";
-import { db } from "@/server/db";
+import { prisma } from "@/server/db";
 import type { Prisma } from "@prisma/client";
 
 export async function createAssessment(
@@ -564,7 +569,7 @@ export async function createAssessment(
   address: string,
   config: { snapshot: Prisma.InputJsonValue; version: number },
 ) {
-  return db.assessment.create({
+  return prisma.assessment.create({
     data: {
       orgId,
       address,
@@ -576,14 +581,14 @@ export async function createAssessment(
 }
 
 export async function listAssessments(orgId: string) {
-  return db.assessment.findMany({
+  return prisma.assessment.findMany({
     where: { orgId },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function getAssessment(orgId: string, id: string) {
-  return db.assessment.findFirst({ where: { id, orgId } });
+  return prisma.assessment.findFirst({ where: { id, orgId } });
 }
 ```
 
@@ -591,12 +596,12 @@ export async function getAssessment(orgId: string, id: string) {
 
 ```ts
 import "server-only";
-import { db } from "@/server/db";
+import { prisma } from "@/server/db";
 import type { Prisma } from "@prisma/client";
 
 /** Atomar pending -> running. true, wenn dieser Aufruf den Übergang gewonnen hat. */
 export async function claimForRun(id: string): Promise<boolean> {
-  const res = await db.assessment.updateMany({
+  const res = await prisma.assessment.updateMany({
     where: { id, status: "pending" },
     data: { status: "running" },
   });
@@ -606,21 +611,21 @@ export async function claimForRun(id: string): Promise<boolean> {
 export async function markReady(
   id: string,
   data: { profile: Prisma.InputJsonValue; scores: Prisma.InputJsonValue; narrative: string | null;
-          lat: number; lon: number; district: string | null; plz: string | null; elevation: number | null },
+          lat: number; lon: number },
 ) {
-  await db.assessment.update({ where: { id }, data: { ...data, status: "ready", error: null } });
+  await prisma.assessment.update({ where: { id }, data: { ...data, status: "ready", error: null } });
 }
 
 export async function markFailed(id: string, error: string) {
-  await db.assessment.update({ where: { id }, data: { status: "failed", error } });
+  await prisma.assessment.update({ where: { id }, data: { status: "failed", error } });
 }
 
 export async function markCancelled(id: string, reason: string) {
-  await db.assessment.update({ where: { id }, data: { status: "cancelled", error: reason } });
+  await prisma.assessment.update({ where: { id }, data: { status: "cancelled", error: reason } });
 }
 
 export async function getSnapshot(id: string) {
-  return db.assessment.findUnique({ where: { id }, select: { orgId: true, address: true, status: true, configSnapshot: true } });
+  return prisma.assessment.findUnique({ where: { id }, select: { orgId: true, address: true, status: true, configSnapshot: true } });
 }
 ```
 
@@ -643,8 +648,7 @@ git commit -m "feat(bodo): org-scoped assessment service with atomic claim"
 **Files:**
 - Create: `src/coworkers/bodo/run-assessment.ts`
 - Test: `src/coworkers/bodo/run-assessment.test.ts`
-- Modify: `src/inngest/functions.ts`
-- Modify: `src/coworkers/bodo/manifest.ts` (inngestFunctions referenzieren)
+- Modify: `src/inngest/functions.ts` (Job registrieren + in `functions[]`; Manifest bleibt unangetastet)
 
 - [ ] **Step 1: Failing test schreiben**
 
@@ -652,7 +656,7 @@ git commit -m "feat(bodo): org-scoped assessment service with atomic claim"
 
 ```ts
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { db } from "@/server/db";
+import { prisma } from "@/server/db";
 import { createAssessment } from "./server/assessment/assessment.service";
 import { runAssessment } from "./run-assessment";
 
@@ -667,18 +671,20 @@ const deps = {
 
 describe("runAssessment", () => {
   beforeEach(async () => {
-    await db.assessment.deleteMany();
-    await db.organization.deleteMany();
-    await db.organization.create({ data: { id: "org1", name: "org1" } });
+    await prisma.assessment.deleteMany();
+    await prisma.organization.deleteMany();
+    await prisma.organization.create({ data: { id: "org1", name: "org1" } });
     vi.clearAllMocks();
   });
 
   it("happy path: pending -> ready with stub profile", async () => {
     const a = await createAssessment("org1", "Kiefernstr. 25, München", { snapshot: {}, version: 0 });
     await runAssessment(a.id, deps);
-    const after = await db.assessment.findUnique({ where: { id: a.id } });
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
     expect(after?.status).toBe("ready");
-    expect(after?.district).toBe("Fasangarten");
+    expect(after?.lat).toBe(48.0865);
+    // district/plz/elevation leben im Profil-JSON, nicht in Spalten:
+    expect((after?.profile as any).district.value).toBe("Fasangarten");
   });
 
   it("is idempotent: second run is a no-op (status stays ready)", async () => {
@@ -691,7 +697,7 @@ describe("runAssessment", () => {
   it("cancels when coworker is not available", async () => {
     const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
     await runAssessment(a.id, { ...deps, isAvailable: vi.fn(async () => false) });
-    const after = await db.assessment.findUnique({ where: { id: a.id } });
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
     expect(after?.status).toBe("cancelled");
   });
 });
@@ -719,7 +725,12 @@ export interface GeocodeResult {
 export interface RunAssessmentDeps {
   isAvailable: (orgId: string, id: string) => Promise<boolean>;
   geocode: (address: string) => Promise<GeocodeResult | null>;
-  buildProfile: (coord: Coordinate, snapshot: unknown) => Promise<LocationProfile>;
+  // geo (district/plz aus Geocoding) fließt als DataPoint ins Profil — keine DB-Spalten.
+  buildProfile: (
+    coord: Coordinate,
+    snapshot: unknown,
+    geo: { district: string | null; plz: string | null },
+  ) => Promise<LocationProfile>;
 }
 
 export async function runAssessment(id: string, deps: RunAssessmentDeps): Promise<void> {
@@ -741,13 +752,17 @@ export async function runAssessment(id: string, deps: RunAssessmentDeps): Promis
     const geo = await deps.geocode(snap.address);
     if (!geo) { await markFailed(id, "Adresse konnte nicht geocodiert werden"); return; }
 
-    const profile = await deps.buildProfile({ lat: geo.lat, lon: geo.lon }, snap.configSnapshot);
+    const profile = await deps.buildProfile(
+      { lat: geo.lat, lon: geo.lon },
+      snap.configSnapshot,
+      { district: geo.district, plz: geo.plz },
+    );
 
     await markReady(id, {
       profile: profile as unknown as object,
       scores: {}, // Scoring folgt in Plan 3
       narrative: null, // Narrative folgt in Plan 3
-      lat: geo.lat, lon: geo.lon, district: geo.district, plz: geo.plz, elevation: geo.elevation,
+      lat: geo.lat, lon: geo.lon,
     });
   } catch (e) {
     await markFailed(id, e instanceof Error ? e.message : "unbekannter Fehler");
@@ -767,15 +782,23 @@ Expected: PASS.
 ```ts
 import "server-only";
 import type { LocationProfile, Coordinate } from "./profile";
-import { unavailable } from "../sources/types";
+import { ok, unavailable } from "../sources/types";
 
-export async function buildProfile(coord: Coordinate, _snapshot: unknown): Promise<LocationProfile> {
+export async function buildProfile(
+  coord: Coordinate,
+  _snapshot: unknown,
+  geo: { district: string | null; plz: string | null },
+): Promise<LocationProfile> {
   const u = (reason: string) => unavailable<never>({ source: "stub", license: "-", reason });
+  // district/plz kommen aus dem Geocoding und werden zu DataPoints (keine DB-Spalte mehr).
+  const fromGeo = (v: string | null) =>
+    v == null ? unavailable<string>({ source: "Nominatim (OSM)", license: "ODbL", reason: "nicht ermittelt" })
+              : ok(v, { source: "Nominatim (OSM)", license: "ODbL", confidence: "high" });
   return {
     coordinate: coord,
-    district: u("Plan 2"),
-    plz: u("Plan 2"),
-    elevation: u("Plan 2"),
+    district: fromGeo(geo.district),
+    plz: fromGeo(geo.plz),
+    elevation: u("Plan 2"), // echter DGM1-Adapter in Plan 2
     fields: {},
   };
 }
@@ -819,14 +842,10 @@ In `functions` aufnehmen:
 export const functions: InngestFunction.Any[] = [transcribeNote, generateReport, runAssessmentJob];
 ```
 
-In `src/coworkers/bodo/manifest.ts` `inngestFunctions` ergänzen:
-
-```ts
-import { runAssessmentJob } from "@/inngest/functions";
-```
-```ts
-  inngestFunctions: [runAssessmentJob],
-```
+**Manifest NICHT anfassen:** `bodoManifest.inngestFunctions` wird bewusst nicht gesetzt
+(siehe Task 3) — das Feld wird nirgends ausgewertet, und ein Import von `@/inngest/functions`
+im Manifest erzeugte einen Import-Zyklus. Die Registrierung erfolgt ausschließlich über das
+`functions[]`-Array oben. Franz handhabt es identisch.
 
 - [ ] **Step 6: Typecheck + Tests**
 
@@ -879,12 +898,21 @@ import { isAvailable, getResolvedCoworker } from "@/coworkers";
 import { createAssessment } from "@/coworkers/bodo/server/assessment/assessment.service";
 import { inngest } from "@/inngest/client";
 
-export async function createAssessmentAction(formData: FormData) {
+// useActionState-Muster wie Franz (createProjectAction): Eingabefehler werden inline
+// im Formular angezeigt statt in die Error-Boundary geworfen.
+export type CreateAssessmentState = { error?: string };
+
+export async function createAssessmentAction(
+  _prev: CreateAssessmentState,
+  formData: FormData,
+): Promise<CreateAssessmentState> {
   const session = await requireSession();
-  if (!(await isAvailable(session.orgId, "bodo"))) throw new Error("not available");
+  if (!(await isAvailable(session.orgId, "bodo"))) {
+    throw new Error("Coworker nicht verfügbar");
+  }
 
   const address = String(formData.get("address") ?? "").trim();
-  if (!address) throw new Error("Adresse fehlt");
+  if (!address) return { error: "Bitte eine Adresse eingeben." };
 
   const resolved = await getResolvedCoworker(session.orgId, "bodo");
   const a = await createAssessment(session.orgId, address, {
@@ -902,18 +930,28 @@ export async function createAssessmentAction(formData: FormData) {
 `src/app/(app)/c/bodo/standorte/new/new-assessment-form.tsx`:
 
 ```tsx
-import { createAssessmentAction } from "./action";
+"use client";
+import { useActionState } from "react";
+import { createAssessmentAction, type CreateAssessmentState } from "./action";
+
+const initial: CreateAssessmentState = {};
 
 export function NewAssessmentForm() {
+  const [state, action, pending] = useActionState(createAssessmentAction, initial);
   return (
-    <form action={createAssessmentAction} className="flex gap-2">
-      <input
-        name="address"
-        required
-        placeholder="z.B. Kiefernstr. 25, München"
-        className="flex-1 rounded-lg border px-3 py-2"
-      />
-      <button type="submit" className="btn btn-primary">Analysieren</button>
+    <form action={action} className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <input
+          name="address"
+          required
+          placeholder="z.B. Kiefernstr. 25, München"
+          className="flex-1 rounded-lg border px-3 py-2"
+        />
+        <button type="submit" disabled={pending} className="btn btn-primary">
+          {pending ? "Analysiere…" : "Analysieren"}
+        </button>
+      </div>
+      {state.error && <p className="text-red-600 text-sm">{state.error}</p>}
     </form>
   );
 }

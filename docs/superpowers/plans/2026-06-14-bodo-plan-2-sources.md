@@ -264,6 +264,7 @@ it("finds nearest stop within radius", async () => {
 ```
 
 - [ ] **Step 4: Implement** `transit.ts` (Default lädt `mvv-stops.json`, optionaler 2. Param für Tests; berechnet nächste Haltestelle per Haversine, `unavailable` wenn keine in 1500 m).
+  > **Runtime-Pfad:** Den Datensatz per statischem ESM-Import laden (`import stops from "./data/mvv-stops.json"` — wird in den Server-Build gebündelt, funktioniert auch im Next-`standalone`-Output), NICHT per `fs.readFile(process.cwd()+…)` (relativer Pfad bricht im Standalone-/Docker-Runtime). Bei Tests den Datensatz über den optionalen 2. Param injizieren, damit die JSON nicht im Test geladen werden muss.
 - [ ] Run → PASS. Commit `feat(bodo): GTFS nearest-stop adapter + refresh script`.
 
 ---
@@ -384,7 +385,9 @@ it("a failing source becomes an error field; others stay ok", async () => {
     // übrige Adapter als ok-Stubs …
   } as any;
   const sourceIds = ["elevation", "pois", "hochwasser"] as any;
-  const profile = await buildProfile({ lat: 48.0865, lon: 11.5951 }, { sources: { elevation: true, pois: true, hochwasser: true } }, { sourceIds, adapters: deps });
+  const geo = { district: "Fasangarten", plz: "81549" };
+  const profile = await buildProfile({ lat: 48.0865, lon: 11.5951 }, { sources: { elevation: true, pois: true, hochwasser: true } }, geo, { sourceIds, adapters: deps });
+  expect(profile.district.status).toBe("ok");
   expect(profile.fields.elevation.status).toBe("ok");
   expect(profile.fields.pois.status).toBe("error");
   expect(profile.fields.hochwasser.status).toBe("ok");
@@ -396,7 +399,7 @@ it("a failing source becomes an error field; others stay ok", async () => {
 ```ts
 import "server-only";
 import type { LocationProfile, Coordinate } from "./profile";
-import { errored, unavailable, type DataPoint } from "../sources/types";
+import { ok, errored, unavailable, type DataPoint } from "../sources/types";
 import { withTimeout } from "../sources/http";
 import { resolveRegionProvider } from "../region/bayern-provider";
 import type { SourceId } from "../region/region-provider";
@@ -435,6 +438,7 @@ async function runSource(id: SourceId, c: Coordinate, fn: (c: Coordinate) => Pro
 export async function buildProfile(
   coord: Coordinate,
   snapshot: { sources?: Partial<Record<SourceId, boolean>> },
+  geo: { district: string | null; plz: string | null },
   opts?: { sourceIds?: SourceId[]; adapters?: AdapterMap },
 ): Promise<LocationProfile> {
   const provider = resolveRegionProvider(coord);
@@ -450,10 +454,17 @@ export async function buildProfile(
   );
 
   const fields = Object.fromEntries(entries) as Record<string, DataPoint<unknown>>;
+
+  // district/plz aus dem Geocoding als DataPoints (Single Source of Truth: keine DB-Spalten).
+  const fromGeo = (v: string | null) =>
+    v == null
+      ? unavailable<string>({ source: "Nominatim (OSM)", license: "ODbL", reason: "nicht ermittelt" })
+      : ok(v, { source: "Nominatim (OSM)", license: "ODbL", confidence: "high" });
+
   return {
     coordinate: coord,
-    district: unavailable({ source: "nominatim", license: "ODbL", reason: "im Job gesetzt" }),
-    plz: unavailable({ source: "nominatim", license: "ODbL", reason: "im Job gesetzt" }),
+    district: fromGeo(geo.district),
+    plz: fromGeo(geo.plz),
     elevation: (fields.elevation as DataPoint<number>) ?? unavailable<number>({ source: "LDBV DGM1", license: "CC BY 4.0", reason: "n/a" }),
     fields,
   };
@@ -466,7 +477,7 @@ export async function buildProfile(
 
 ## Task 16: Pipeline an den Job hängen (Stub entfernen)
 
-**Files:** Modify `src/inngest/functions.ts` (nutzt bereits `geocode` + `buildProfile`; jetzt echte Module). Modify `run-assessment.ts` falls nötig (Signatur `buildProfile(coord, snapshot)` passt bereits).
+**Files:** Modify `src/inngest/functions.ts` (nutzt bereits `geocode` + `buildProfile`; jetzt echte Module). `run-assessment.ts` ruft `buildProfile(coord, snapshot, geo)` bereits mit dem geo-Argument (district/plz) auf — die echte Pipeline (Task 15) hat dieselbe Signatur (`opts` ist optional, default = `provider.sourceIds`), also keine Job-Änderung nötig.
 
 - [ ] **Step 1:** Sicherstellen, dass `src/coworkers/bodo/server/pipeline/build-profile.ts` (echt) importiert wird — der Stub aus Plan 1 ist dieselbe Datei und wurde in Task 15 ersetzt. `nominatim.geocode` ist seit Task 2 echt.
 - [ ] **Step 2:** Job-Test aus Plan 1 erneut grün (`buildProfile`-Mock weiterhin injiziert).
