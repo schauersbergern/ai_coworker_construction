@@ -169,7 +169,7 @@ model Assessment {
   profile        Json?            // normalisierte DataPoints (inkl. district/plz/elevation)
   scores         Json?
   narrative      String?
-  configSnapshot Json
+  configSnapshot Json             // NOT NULL — immer beim Enqueue erfasst (vgl. Plan 1 Task 6); nicht auf nullable angleichen
   configVersion  Int              @default(0)
   error          String?
   createdAt      DateTime         @default(now())
