@@ -6,6 +6,13 @@ import { storage } from "@/server/storage";
 import { LocalWhisperTranscriber } from "@/coworkers/franz/server/transcription/local-whisper";
 import { ClaudeDocGenerator } from "@/coworkers/franz/server/docgen/claude-doc-generator";
 import { log } from "@/server/log";
+import { isAvailable } from "@/coworkers";
+import { runAssessment } from "@/coworkers/bodo/run-assessment";
+import { geocode } from "@/coworkers/bodo/server/sources/nominatim";
+import { buildProfile } from "@/coworkers/bodo/server/pipeline/build-profile";
+import { failIfNotTerminal } from "@/coworkers/bodo/server/assessment/assessment.internal";
+import { buildNarrative } from "@/coworkers/bodo/server/narrative/narrative";
+import { ClaudeNarrativeGenerator } from "@/coworkers/bodo/server/narrative/claude-narrative";
 
 export const transcribeNote = inngest.createFunction(
   { id: "transcribe-note", retries: 2, triggers: [{ event: "note/created" }] },
@@ -33,4 +40,37 @@ export const generateReport = inngest.createFunction(
   },
 );
 
-export const functions: InngestFunction.Any[] = [transcribeNote, generateReport];
+// Entspricht Inngests `retries` (0-indexierter `attempt`): maxAttempts === retries, NICHT
+// retries+1. Beim letzten Versuch (attempt === maxAttempts) persistiert der Job statt zu werfen.
+const RUN_ASSESSMENT_RETRIES = 3;
+
+export const runAssessmentJob = inngest.createFunction(
+  {
+    id: "run-assessment",
+    retries: RUN_ASSESSMENT_RETRIES,
+    idempotency: "event.data.assessmentId",
+    // Anwendungsweites Geocoding-Limit: max. 1 Job-Start/s ÜBER ALLE Worker/Instanzen hinweg
+    // (Inngest-seitig erzwungen). Da jeder Job genau 1 Nominatim-Geocode macht, hält das die
+    // Nominatim-Usage-Policy (1 req/s) global ein — anders als der reine In-Memory-Throttle.
+    throttle: { limit: 1, period: "1s" },
+    triggers: [{ event: "assessment/requested" }],
+    onFailure: async ({ event, error }: { event: { data: { event?: { data?: { assessmentId?: string } } } }; error: Error }) => {
+      const assessmentId = event.data?.event?.data?.assessmentId;
+      if (assessmentId) {
+        await failIfNotTerminal(assessmentId, error.message ?? "Job nach Retries fehlgeschlagen");
+      }
+    },
+  },
+  async ({ event, attempt }: { event: { data: { assessmentId: string } }; attempt: number }) => {
+    const { assessmentId } = event.data;
+    log("inngest", "run-assessment invoked", { assessmentId, attempt });
+    await runAssessment(
+      assessmentId,
+      { isAvailable, geocode, buildProfile, generateNarrative: (input) => buildNarrative(input, new ClaudeNarrativeGenerator()) },
+      { attempt, maxAttempts: RUN_ASSESSMENT_RETRIES },
+    );
+    return { assessmentId };
+  },
+);
+
+export const functions: InngestFunction.Any[] = [transcribeNote, generateReport, runAssessmentJob];

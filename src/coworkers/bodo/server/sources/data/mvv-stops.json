@@ -1,0 +1,12 @@
+[
+  { "name": "Marienplatz", "lat": 48.1374, "lon": 11.5755 },
+  { "name": "Hauptbahnhof", "lat": 48.1402, "lon": 11.5586 },
+  { "name": "Sendlinger Tor", "lat": 48.1339, "lon": 11.5667 },
+  { "name": "Odeonsplatz", "lat": 48.1426, "lon": 11.5778 },
+  { "name": "Karlsplatz (Stachus)", "lat": 48.1393, "lon": 11.5659 },
+  { "name": "Fasangarten", "lat": 48.0888, "lon": 11.5969 },
+  { "name": "Giesing", "lat": 48.1126, "lon": 11.5949 },
+  { "name": "Harras", "lat": 48.1156, "lon": 11.5394 },
+  { "name": "Ostbahnhof", "lat": 48.1273, "lon": 11.6041 },
+  { "name": "Münchner Freiheit", "lat": 48.1615, "lon": 11.5862 }
+]

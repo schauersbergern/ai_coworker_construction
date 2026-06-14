@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import "@/coworkers"; // registriert franz/mira/theo
+import "@/coworkers"; // registriert franz/mira/theo/bodo
 import { resolveAvailability } from "@/coworkers/resolve";
 import { getCoworker } from "@/coworkers/registry";
 
