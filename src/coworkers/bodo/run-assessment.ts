@@ -35,6 +35,8 @@ export async function runAssessment(
 ): Promise<void> {
   const snap = await getSnapshot(id);
   if (!snap) {
+    // Nicht (mehr) existierendes Assessment: permanenter No-op, kein Retry (anders als
+    // Franz, das wirft) — ein Retry könnte den fehlenden Datensatz nie herstellen.
     log("bodo", "run-assessment: not found", { id });
     return;
   }
@@ -64,6 +66,11 @@ export async function runAssessment(
     }
 
     const region = resolveRegionProvider({ lat: geo.lat, lon: geo.lon });
+    // Zweistufiger Bayern-Check: die bbox (resolveRegionProvider) ist der primäre Gate; das
+    // Nominatim-`state`-Feld verfeinert NUR bei positivem Widerspruch (state gesetzt UND ≠
+    // "Bayern"). `state == null` (Nominatim liefert kein Bundesland) wird bewusst NICHT
+    // abgelehnt — sonst würden valide Bayern-Adressen ohne state-Feld fälschlich scheitern;
+    // die bbox hat in dem Fall bereits bestätigt, dass der Punkt in Bayern liegt.
     if (!region || (geo.state != null && geo.state !== "Bayern")) {
       await markFailed(
         id,

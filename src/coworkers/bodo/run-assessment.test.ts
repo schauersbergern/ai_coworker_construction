@@ -1,15 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { prisma } from "@/server/db";
 import { createAssessment } from "./server/assessment/assessment.service";
+import { claimForRun } from "./server/assessment/assessment.internal";
+import { ok } from "./server/sources/types";
 import { runAssessment, type RunAssessmentDeps } from "./run-assessment";
+
+const meta = { source: "test", license: "-", confidence: "high" } as const;
 
 const deps: RunAssessmentDeps = {
   isAvailable: vi.fn(async () => true),
   buildProfile: vi.fn(async (coord) => ({
     coordinate: coord,
-    district: { value: "Fasangarten", status: "ok", source: "test", license: "-", confidence: "high", retrievedAt: new Date().toISOString() },
-    plz: { value: "81549", status: "ok", source: "test", license: "-", confidence: "high", retrievedAt: new Date().toISOString() },
-    elevation: { value: 550, status: "ok", source: "test", license: "-", confidence: "high", retrievedAt: new Date().toISOString() },
+    district: ok("Fasangarten", meta),
+    plz: ok("81549", meta),
+    elevation: ok(550, meta),
     fields: {},
   })),
   geocode: vi.fn(async () => ({ lat: 48.0865, lon: 11.5951, district: "Fasangarten", plz: "81549", state: "Bayern" })),
@@ -72,5 +76,22 @@ describe("runAssessment", () => {
     await runAssessment(a.id, flaky, { attempt: 3, maxAttempts: 3 });
     const after = await prisma.assessment.findUnique({ where: { id: a.id } });
     expect(after?.status).toBe("failed");
+  });
+
+  it("fails when geocoding yields no result", async () => {
+    const a = await createAssessment("org1", "nirgendwo", { snapshot: {}, version: 0 });
+    await runAssessment(a.id, { ...deps, geocode: vi.fn(async () => null) });
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("failed");
+    expect(after?.error).toMatch(/geocodiert/);
+  });
+
+  it("re-enters a running assessment (retry) and completes to ready", async () => {
+    const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
+    expect(await claimForRun(a.id)).toBe(true); // simuliert: erster Versuch hat geclaimt
+    await runAssessment(a.id, deps); // zweiter Lauf sieht status=running → re-entrant
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("ready");
+    expect(deps.buildProfile).toHaveBeenCalledTimes(1);
   });
 });
