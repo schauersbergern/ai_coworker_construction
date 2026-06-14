@@ -3,6 +3,7 @@ import type { ReportContent } from "@/server/reports/report-content";
 export type DocGenInput = {
   projectName: string;
   notes: { id: string; transcript: string }[];
+  systemPrompt: string;
 };
 
 export interface DocGenerator {

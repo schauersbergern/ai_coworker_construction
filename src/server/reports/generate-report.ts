@@ -8,6 +8,9 @@ import {
 } from "./reports.internal";
 import { matchPhotosToNotes } from "./photo-matching";
 import { renderReportPdf } from "@/server/pdf/render-report";
+import { prisma } from "@/server/db";
+import { isAvailable } from "@/coworkers";
+import { franzConfigSchema, franzDefaultConfig } from "@/coworkers/franz/config";
 import { log, logError } from "@/server/log";
 import type { RenderFinding } from "@/server/pdf/report-document";
 import type { DocGenerator } from "@/server/docgen/doc-generator";
@@ -37,6 +40,23 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
   const report = await getReportById(reportId);
   if (!report) throw new Error(`Report ${reportId} not found`);
 
+  // Org des Reports ermitteln; wurde Franz nach dem Enqueue deaktiviert/kill-switched
+  // → kontrolliert auf "cancelled" (terminal), nicht hängen lassen.
+  const owner = await prisma.report.findUnique({
+    where: { id: reportId },
+    select: { project: { select: { orgId: true } } },
+  });
+  const orgId = owner?.project.orgId;
+  if (!orgId || !(await isAvailable(orgId, "franz"))) {
+    await setReportStatus(reportId, "cancelled");
+    log("report", "cancelled: coworker unavailable", { reportId, orgId });
+    return null;
+  }
+
+  // Config aus dem Snapshot (reproduzierbar), Fallback auf Defaults bei Altbeständen.
+  const snapshot = franzConfigSchema.safeParse(report.configSnapshot);
+  const config = snapshot.success ? snapshot.data : franzDefaultConfig;
+
   log("report", "start", { reportId, projectId: report.projectId });
   const startedAt = Date.now();
   try {
@@ -52,6 +72,7 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
     const content = await deps.docGenerator.generate({
       projectName: project.name,
       notes: usableNotes.map((n) => ({ id: n.id, transcript: n.transcript! })),
+      systemPrompt: config.docgen.systemPrompt,
     });
 
     const effectiveTime = (p: (typeof photos)[number]) => p.exifTakenAt ?? p.clientCapturedAt;

@@ -10,6 +10,7 @@ describe("FakeDocGenerator", () => {
         { id: "n1", transcript: "Riss in der Wand" },
         { id: "n2", transcript: "Feuchtigkeit im Keller" },
       ],
+      systemPrompt: "Test-Prompt",
     });
     expect(out.findings).toHaveLength(2);
     expect(out.findings[0]).toMatchObject({ noteId: "n1", text: "Riss in der Wand" });

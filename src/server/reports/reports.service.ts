@@ -1,7 +1,12 @@
 import { prisma } from "@/server/db";
 import type { Prisma, ReportStatus } from "@prisma/client";
 
-export type CreateReportInput = { label: string; createdById: string | null };
+export type CreateReportInput = {
+  label: string;
+  createdById: string | null;
+  configSnapshot: Prisma.InputJsonValue;
+  configVersion: number;
+};
 
 export function createReport(projectId: string, input: CreateReportInput) {
   return prisma.report.create({
@@ -10,6 +15,8 @@ export function createReport(projectId: string, input: CreateReportInput) {
       label: input.label,
       createdById: input.createdById ?? undefined,
       status: "pending",
+      configSnapshot: input.configSnapshot,
+      configVersion: input.configVersion,
     },
   });
 }

@@ -6,6 +6,7 @@ import { prisma } from "@/server/db";
 import { LocalStorage } from "@/server/storage/local-storage";
 import { FakeDocGenerator } from "@/server/docgen/doc-generator";
 import { runGenerateReport } from "./generate-report";
+import "@/coworkers"; // registriert Franz im Resolver (isAvailable braucht das Manifest)
 
 let dir: string;
 let storage: LocalStorage;
@@ -35,6 +36,7 @@ beforeEach(async () => {
   await prisma.photo.deleteMany();
   await prisma.note.deleteMany();
   await prisma.project.deleteMany();
+  await prisma.orgModule.deleteMany();
   await prisma.organization.deleteMany();
   dir = mkdtempSync(join(tmpdir(), "baudoku-report-"));
   storage = new LocalStorage(dir);
@@ -48,10 +50,10 @@ describe("runGenerateReport", () => {
       docGenerator: new FakeDocGenerator(),
       now: new Date("2026-06-02T00:00:00Z"),
     });
-    expect(result.status).toBe("done");
-    expect(result.pdfUrl).toMatch(/reports\/.*\.pdf$/);
-    expect(await storage.exists(result.pdfUrl!)).toBe(true);
-    const pdf = await storage.read(result.pdfUrl!);
+    expect(result?.status).toBe("done");
+    expect(result?.pdfUrl).toMatch(/reports\/.*\.pdf$/);
+    expect(await storage.exists(result!.pdfUrl!)).toBe(true);
+    const pdf = await storage.read(result!.pdfUrl!);
     expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
   });
 
@@ -74,6 +76,26 @@ describe("runGenerateReport", () => {
     ).rejects.toThrow();
     const reloaded = await prisma.report.findUnique({ where: { id: report.id } });
     expect(reloaded?.status).toBe("failed");
+  });
+
+  it("cancels (no docgen call) when franz is unavailable for the org", async () => {
+    const org = await prisma.organization.create({ data: { name: "Ohne Franz" } });
+    // Franz ist enabledByDefault → explizit entziehen, damit der Resolver notEntitled liefert.
+    await prisma.orgModule.create({ data: { orgId: org.id, coworkerId: "franz", enabled: false } });
+    const project = await prisma.project.create({ data: { orgId: org.id, name: "Wohnbau" } });
+    await prisma.note.create({
+      data: { projectId: project.id, audioUrl: "k", transcript: "Riss", transcriptStatus: "done", recordedAt: new Date() },
+    });
+    const report = await prisma.report.create({ data: { projectId: project.id, label: "E", status: "pending" } });
+
+    let generateCalls = 0;
+    const spyGen = { generate: async () => { generateCalls++; return { intro: "", findings: [] }; } };
+
+    const result = await runGenerateReport(report.id, { storage, docGenerator: spyGen, now: new Date() });
+
+    expect(result).toBeNull();
+    expect((await prisma.report.findUnique({ where: { id: report.id } }))?.status).toBe("cancelled");
+    expect(generateCalls).toBe(0);
   });
 
   it("throws (and marks failed) when notes exist but none has a usable transcript", async () => {

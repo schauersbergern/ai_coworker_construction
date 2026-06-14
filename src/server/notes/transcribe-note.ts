@@ -2,6 +2,8 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { getNoteForOrgless, setTranscript, setTranscriptStatus } from "./notes.internal";
+import { prisma } from "@/server/db";
+import { isAvailable } from "@/coworkers";
 import { log, logError } from "@/server/log";
 import type { ObjectStorage } from "@/server/storage/object-storage";
 import type { Transcriber } from "@/server/transcription/transcriber";
@@ -21,6 +23,19 @@ export async function runTranscribeNote(noteId: string, deps: TranscribeDeps) {
   const note = await getNoteForOrgless(noteId);
   if (!note) {
     log("transcribe", "cancelled: note deleted", { noteId });
+    return null;
+  }
+
+  // Wurde Franz nach dem Enqueue deaktiviert/kill-switched → kontrolliert auf
+  // "cancelled" (terminal), nicht hängen lassen oder als Fehler retryen.
+  const owner = await prisma.note.findUnique({
+    where: { id: noteId },
+    select: { project: { select: { orgId: true } } },
+  });
+  const orgId = owner?.project.orgId;
+  if (!orgId || !(await isAvailable(orgId, "franz"))) {
+    await setTranscriptStatus(noteId, "cancelled");
+    log("transcribe", "cancelled: coworker unavailable", { noteId, orgId });
     return null;
   }
 
