@@ -34,7 +34,8 @@ describe("buildProfile", () => {
       { sourceIds: ["pois"] as any, adapters: { pois } as any },
     );
     expect(profile.fields.pois.status).toBe("unavailable");
-    expect(pois).not.toHaveBeenCalled();
+    expect(profile.fields.pois.reason).toBe("per Konfiguration deaktiviert");
+    expect(pois).not.toHaveBeenCalled(); // Leitprinzip: Flag + Config-Zeile, kein Code-Branch
   });
 
   it("no region provider (outside Bayern) yields empty fields", async () => {
