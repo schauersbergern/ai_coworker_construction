@@ -17,7 +17,9 @@ import { fetchDenkmal } from "../sources/denkmal";
 
 type AdapterMap = Record<SourceId, (ctx: SourceContext) => Promise<DataPoint<unknown>>>;
 
-const DEFAULT_ADAPTERS: AdapterMap = {
+// `satisfies` (statt `as`) erzwingt Vollständigkeit: fehlt künftig ein SourceId-Adapter,
+// schlägt der Compile fehl — statt erst zur Laufzeit ("fn is not a function").
+const DEFAULT_ADAPTERS = {
   elevation: fetchElevation,
   pois: fetchPois,
   transit: fetchTransit,
@@ -29,7 +31,7 @@ const DEFAULT_ADAPTERS: AdapterMap = {
   geschosse: fetchGeschosse,
   sozio: fetchSozio,
   denkmal: fetchDenkmal,
-} as AdapterMap;
+} satisfies AdapterMap;
 
 const TIMEOUT_MS = 12000;
 
