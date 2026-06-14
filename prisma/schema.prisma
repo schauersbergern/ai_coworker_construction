@@ -55,12 +55,13 @@ model VerificationToken {
 }
 
 model Organization {
-  id        String    @id @default(cuid())
-  name      String
-  createdAt DateTime  @default(now())
-  users     User[]
-  projects  Project[]
-  modules   OrgModule[]
+  id          String       @id @default(cuid())
+  name        String
+  createdAt   DateTime     @default(now())
+  users       User[]
+  projects    Project[]
+  modules     OrgModule[]
+  assessments Assessment[]
 }
 
 model Project {
@@ -146,5 +147,33 @@ model OrgModule {
   updatedAt     DateTime @updatedAt
 
   @@unique([orgId, coworkerId])
+  @@index([orgId])
+}
+
+enum AssessmentStatus {
+  pending
+  running
+  ready
+  failed
+  cancelled
+}
+
+model Assessment {
+  id             String           @id @default(cuid())
+  orgId          String
+  org            Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  address        String
+  lat            Float?           // aus Geocoding (Karte/Geo-Queries)
+  lon            Float?
+  status         AssessmentStatus @default(pending)
+  profile        Json?            // normalisierte DataPoints (inkl. district/plz/elevation)
+  scores         Json?
+  narrative      String?
+  configSnapshot Json
+  configVersion  Int              @default(0)
+  error          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
   @@index([orgId])
 }
