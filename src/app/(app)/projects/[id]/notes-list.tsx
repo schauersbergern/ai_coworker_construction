@@ -7,7 +7,7 @@ import { ConfirmDialog } from "./confirm-dialog";
 export type NoteView = {
   id: string;
   transcript: string | null;
-  transcriptStatus: "pending" | "done" | "failed";
+  transcriptStatus: "pending" | "done" | "failed" | "cancelled";
   recordedAt: string;
   audioKey: string;
 };
@@ -182,6 +182,7 @@ function StatusBadge({ status }: { status: NoteView["transcriptStatus"] }) {
     pending: ["bg-yellow-100 text-yellow-800", "läuft"],
     done: ["bg-green-100 text-green-800", "fertig"],
     failed: ["bg-red-100 text-red-800", "fehlgeschlagen"],
+    cancelled: ["bg-gray-100 text-gray-700", "abgebrochen"],
   } as const;
   const [cls, label] = map[status];
   return <span className={`rounded px-2 py-0.5 text-xs ${cls}`}>{label}</span>;

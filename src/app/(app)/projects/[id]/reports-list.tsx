@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 export type ReportView = {
   id: string;
   label: string;
-  status: "pending" | "done" | "failed";
+  status: "pending" | "done" | "failed" | "cancelled";
   pdfKey: string | null;
   generatedAt: string;
 };
@@ -65,6 +65,7 @@ function StatusBadge({ status }: { status: ReportView["status"] }) {
     pending: ["bg-yellow-100 text-yellow-800", "wird erstellt"],
     done: ["bg-green-100 text-green-800", "fertig"],
     failed: ["bg-red-100 text-red-800", "fehlgeschlagen"],
+    cancelled: ["bg-gray-100 text-gray-700", "abgebrochen"],
   } as const;
   const [cls, label] = map[status];
   return <span className={`rounded px-2 py-0.5 text-xs ${cls}`}>{label}</span>;
