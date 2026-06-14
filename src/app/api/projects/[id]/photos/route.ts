@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
+import { isAvailable } from "@/coworkers";
 import { getProject } from "@/server/projects/projects.service";
 import { createPhoto } from "@/server/photos/photos.service";
 import { extractTakenAt } from "@/server/photos/exif";
@@ -16,6 +17,9 @@ const MAX_PHOTO_BYTES = 15 * 1024 * 1024; // 15 MB
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
   const { id: projectId } = await params;
+  if (!(await isAvailable(session.orgId, "franz"))) {
+    return new NextResponse("Not found", { status: 404 });
+  }
   const project = await getProject(session.orgId, projectId);
   if (!project) return new NextResponse("Not found", { status: 404 });
 
