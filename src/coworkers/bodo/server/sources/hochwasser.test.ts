@@ -11,3 +11,15 @@ it("flags hq100 when that layer has a feature at the point", async () => {
   expect(dp.status).toBe("ok");
   expect(dp.value).toEqual({ hqHaeufig: false, hq100: true, hqExtrem: false });
 });
+
+it("returns all-false when no layer has a feature", async () => {
+  vi.mocked(wmsHasFeatureAtPoint).mockResolvedValue(false);
+  const dp = await fetchHochwasser(ctx);
+  expect(dp.status).toBe("ok");
+  expect(dp.value).toEqual({ hqHaeufig: false, hq100: false, hqExtrem: false });
+});
+
+it("propagates a WMS error (pipeline handles it)", async () => {
+  vi.mocked(wmsHasFeatureAtPoint).mockRejectedValue(new Error("WMS down"));
+  await expect(fetchHochwasser(ctx)).rejects.toThrow("WMS down");
+});
