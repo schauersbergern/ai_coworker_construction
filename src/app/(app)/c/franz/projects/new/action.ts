@@ -26,6 +26,6 @@ export async function createProjectAction(
     throw new Error("Coworker nicht verfügbar");
   }
   const project = await createProject(session.orgId, parsed.data);
-  revalidatePath("/projects");
-  redirect(`/projects/${project.id}`);
+  revalidatePath("/c/franz/projects");
+  redirect(`/c/franz/projects/${project.id}`);
 }

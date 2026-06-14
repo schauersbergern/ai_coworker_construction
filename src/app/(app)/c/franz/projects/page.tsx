@@ -36,7 +36,7 @@ export default async function ProjectsPage() {
             {projects.map((p) => (
               <li key={p.id}>
                 <Link
-                  href={`/projects/${p.id}`}
+                  href={`/c/franz/projects/${p.id}`}
                   className="card p-4 block hover:-translate-y-0.5 hover:shadow-md transition-transform"
                 >
                   <span className="font-semibold">{p.name}</span>

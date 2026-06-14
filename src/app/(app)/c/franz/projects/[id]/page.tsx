@@ -17,7 +17,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   return (
     <div className="mx-auto max-w-3xl px-5 py-8 sm:py-10 flex flex-col gap-8">
       <header>
-        <Link href="/projects" className="text-sm text-muted hover:text-cobalt">
+        <Link href="/c/franz/projects" className="text-sm text-muted hover:text-cobalt">
           ← Projekte
         </Link>
         <h1 className="text-3xl font-extrabold mt-2 leading-tight">{project.name}</h1>
