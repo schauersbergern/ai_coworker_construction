@@ -1,6 +1,7 @@
 "use server";
 import type { Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { requireSession } from "@/server/auth/require-session";
 import { getResolvedCoworker } from "@/coworkers";
 import { createAssessment } from "@/coworkers/bodo/server/assessment/assessment.service";
@@ -16,13 +17,14 @@ export async function createAssessmentAction(
 ): Promise<CreateAssessmentState> {
   const session = await requireSession();
 
+  // Günstige Eingabevalidierung zuerst — kein DB-Round-Trip bei leerem Formular (wie Franz).
+  const address = String(formData.get("address") ?? "").trim();
+  if (!address) return { error: "Bitte eine Adresse eingeben." };
+
   const resolved = await getResolvedCoworker(session.orgId, "bodo");
   if (!resolved || resolved.availability !== "available" || !resolved.config) {
     throw new Error("Coworker nicht verfügbar");
   }
-
-  const address = String(formData.get("address") ?? "").trim();
-  if (!address) return { error: "Bitte eine Adresse eingeben." };
 
   const a = await createAssessment(session.orgId, address, {
     snapshot: resolved.config as Prisma.InputJsonValue,
@@ -39,5 +41,6 @@ export async function createAssessmentAction(
     return { error: "Analyse konnte nicht gestartet werden. Bitte erneut versuchen." };
   }
 
+  revalidatePath("/c/bodo/standorte"); // Liste nach Anlage nicht aus dem Cache stale zeigen
   redirect(`/c/bodo/standorte/${a.id}`);
 }

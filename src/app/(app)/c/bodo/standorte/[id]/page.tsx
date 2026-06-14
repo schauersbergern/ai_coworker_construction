@@ -14,7 +14,9 @@ export default async function AssessmentDetail({ params }: { params: Promise<{ i
           {JSON.stringify(a.profile, null, 2)}
         </pre>
       )}
-      {a.status === "failed" && <p className="text-red-600 mt-4">Fehler: {a.error}</p>}
+      {(a.status === "failed" || a.status === "cancelled") && (
+        <p className="text-red-600 mt-4">Fehler: {a.error}</p>
+      )}
     </div>
   );
 }
