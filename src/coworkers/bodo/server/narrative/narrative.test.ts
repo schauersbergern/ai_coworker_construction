@@ -13,13 +13,17 @@ describe("narrative", () => {
       gen,
     );
     expect(text).toBe("Mikrolage-Text");
-    expect(gen.generate).toHaveBeenCalledOnce();
+    expect(gen.generate).toHaveBeenCalledWith({
+      systemPrompt: "SP",
+      userContent: expect.stringContaining('"coordinate"'),
+    });
   });
 
-  it("serializeForLlm emits ok values but hides unavailable field values (only status/reason)", () => {
+  it("serializeForLlm emits ok values but hides non-ok field values (only status/reason)", () => {
     const profile = { coordinate: { lat: 48, lon: 11 }, fields: {
       hochwasser: dp("ok", { hq100: false }),
       sozio: dp("unavailable", null, "nur München"),
+      pois: dp("error", null, "overpass down"),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } } as any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,5 +31,6 @@ describe("narrative", () => {
     const parsed = JSON.parse(json);
     expect(parsed.fields.hochwasser).toEqual({ hq100: false });
     expect(parsed.fields.sozio).toEqual({ status: "unavailable", reason: "nur München" });
+    expect(parsed.fields.pois).toEqual({ status: "error", reason: "overpass down" });
   });
 });
