@@ -10,7 +10,8 @@ import { matchPhotosToNotes } from "./photo-matching";
 import { renderReportPdf } from "@/coworkers/franz/server/pdf/render-report";
 import { prisma } from "@/server/db";
 import { isAvailable } from "@/coworkers";
-import { franzConfigSchema, franzDefaultConfig } from "@/coworkers/franz/config";
+import { resolveConfig } from "@/coworkers/resolve";
+import { franzManifest } from "@/coworkers/franz/manifest";
 import { log, logError } from "@/server/log";
 import type { RenderFinding } from "@/coworkers/franz/server/pdf/report-document";
 import type { DocGenerator } from "@/coworkers/franz/server/docgen/doc-generator";
@@ -40,6 +41,14 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
   const report = await getReportById(reportId);
   if (!report) throw new Error(`Report ${reportId} not found`);
 
+  // Idempotenz: fertige/abgebrochene Reports nicht neu erzeugen. Ein doppeltes/verspätetes
+  // Event darf ein fertiges PDF nicht überschreiben. Ein Retry setzt den Status zuvor
+  // explizit auf "pending".
+  if (report.status === "done" || report.status === "cancelled") {
+    log("report", "skip: already terminal", { reportId, status: report.status });
+    return null;
+  }
+
   // Org des Reports ermitteln; wurde Franz nach dem Enqueue deaktiviert/kill-switched
   // → kontrolliert auf "cancelled" (terminal), nicht hängen lassen.
   const owner = await prisma.report.findUnique({
@@ -53,19 +62,17 @@ export async function runGenerateReport(reportId: string, deps: GenerateDeps) {
     return null;
   }
 
-  // Config aus dem Snapshot (reproduzierbar). Null-Snapshot (Altbestände) → still Defaults.
-  // Ein vorhandener, aber ungültiger Snapshot ist ein Problem (untergräbt Reproduzierbarkeit)
-  // → laut loggen, dann Defaults. Hinweis: Snapshots sind (noch) nicht migrationsbewusst;
-  // sobald franz.configVersion steigt, müssten ältere Snapshots vor der Validierung migriert werden.
-  let config = franzDefaultConfig;
-  if (report.configSnapshot != null) {
-    const parsed = franzConfigSchema.safeParse(report.configSnapshot);
-    if (parsed.success) {
-      config = parsed.data;
-    } else {
-      logError("report", "invalid config snapshot, falling back to defaults", parsed.error, { reportId, orgId });
-    }
-  }
+  // Config aus dem Snapshot, versions-/migrationsbewusst auflösen (reproduzierbar):
+  // resolveConfig migriert von der gespeicherten report.configVersion auf die aktuelle
+  // Manifest-Version (configMigrations), merged über Defaults und validiert. Null-Snapshot
+  // (Altbestände) → Defaults; ein ungültiger Snapshot wird geloggt und fällt kontrolliert
+  // auf Defaults zurück. Damit behalten ältere Reports nach einer Schemaerhöhung ihre
+  // Tenant-Konfiguration statt still auf Defaults zu fallen.
+  const config = resolveConfig(
+    franzManifest,
+    { config: report.configSnapshot, configVersion: report.configVersion ?? 0 },
+    { orgId },
+  );
 
   log("report", "start", { reportId, projectId: report.projectId });
   const startedAt = Date.now();

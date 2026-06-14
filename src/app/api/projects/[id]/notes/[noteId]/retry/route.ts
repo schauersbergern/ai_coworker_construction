@@ -11,6 +11,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const note = await getNoteForOrg(session.orgId, noteId);
   if (!note || note.projectId !== id) return new NextResponse("Not found", { status: 404 });
 
+  // Nur fehlgeschlagene/abgebrochene Transkriptionen dürfen erneut versucht werden. Sonst
+  // könnte ein direkter Request ein fertiges ("done") Transkript verwerfen oder einen
+  // parallelen Job für eine bereits laufende ("pending") Notiz starten.
+  if (note.transcriptStatus !== "failed" && note.transcriptStatus !== "cancelled") {
+    return NextResponse.json(
+      { error: "Nur fehlgeschlagene oder abgebrochene Transkriptionen können erneut versucht werden.", status: note.transcriptStatus },
+      { status: 409 },
+    );
+  }
+
   await setTranscriptStatus(noteId, "pending");
   // Wie im Upload: schlägt das Enqueuen fehl, bliebe die Note "pending" und die UI
   // würde den Retry-Button ausblenden. Daher zurück auf "failed" setzen.

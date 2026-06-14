@@ -26,6 +26,14 @@ export async function runTranscribeNote(noteId: string, deps: TranscribeDeps) {
     return null;
   }
 
+  // Idempotenz: bereits terminal verarbeitete Notizen nicht erneut anfassen. Ein
+  // doppeltes/verspätetes Inngest-Event darf ein (ggf. korrigiertes) Transkript nicht
+  // überschreiben. Ein Retry setzt den Status zuvor explizit auf "pending".
+  if (note.transcriptStatus === "done" || note.transcriptStatus === "cancelled") {
+    log("transcribe", "skip: already terminal", { noteId, status: note.transcriptStatus });
+    return null;
+  }
+
   // Wurde Franz nach dem Enqueue deaktiviert/kill-switched → kontrolliert auf
   // "cancelled" (terminal), nicht hängen lassen oder als Fehler retryen.
   const owner = await prisma.note.findUnique({

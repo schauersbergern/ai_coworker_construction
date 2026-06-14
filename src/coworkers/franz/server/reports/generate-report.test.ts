@@ -98,6 +98,52 @@ describe("runGenerateReport", () => {
     expect(generateCalls).toBe(0);
   });
 
+  it("drives the doc generator from the stored config snapshot (reproducible)", async () => {
+    const { report } = await seed();
+    const customPrompt = "SNAPSHOT-PROMPT — reproduzierbar";
+    await prisma.report.update({
+      where: { id: report.id },
+      data: {
+        configSnapshot: {
+          docgen: { systemPrompt: customPrompt },
+          labels: { notesHeading: "a", photosHeading: "b", docsHeading: "c" },
+        },
+        configVersion: 0,
+      },
+    });
+
+    // An FakeDocGenerator delegieren (liefert vertragskonforme Findings), aber den
+    // tatsächlich übergebenen systemPrompt mitschneiden.
+    const fake = new FakeDocGenerator();
+    let seenPrompt: string | undefined;
+    const spyGen = {
+      generate: async (input: Parameters<FakeDocGenerator["generate"]>[0]) => {
+        seenPrompt = input.systemPrompt;
+        return fake.generate(input);
+      },
+    };
+
+    const result = await runGenerateReport(report.id, { storage, docGenerator: spyGen, now: new Date() });
+
+    expect(result?.status).toBe("done");
+    expect(seenPrompt).toBe(customPrompt);
+  });
+
+  it("is idempotent: skips a report already in a terminal state (no docgen call)", async () => {
+    // Org hat Franz verfügbar; der Terminal-Check muss VOR Verfügbarkeits-/Docgen-Logik greifen.
+    const { report } = await seed();
+    await prisma.report.update({ where: { id: report.id }, data: { status: "done" } });
+
+    let generateCalls = 0;
+    const spyGen = { generate: async () => { generateCalls++; return { intro: "", findings: [] }; } };
+
+    const result = await runGenerateReport(report.id, { storage, docGenerator: spyGen, now: new Date() });
+
+    expect(result).toBeNull();
+    expect(generateCalls).toBe(0);
+    expect((await prisma.report.findUnique({ where: { id: report.id } }))?.status).toBe("done");
+  });
+
   it("throws (and marks failed) when notes exist but none has a usable transcript", async () => {
     const org = await prisma.organization.create({ data: { name: "B" } });
     const project = await prisma.project.create({ data: { orgId: org.id, name: "Pending" } });

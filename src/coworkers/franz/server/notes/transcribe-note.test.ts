@@ -55,6 +55,27 @@ describe("runTranscribeNote", () => {
     expect(reloaded?.transcriptStatus).toBe("failed");
   });
 
+  it("is idempotent: skips a note already done and does not overwrite the transcript", async () => {
+    const key = "projects/p/notes/done.webm";
+    const storage = new LocalStorage(dir);
+    await storage.put(key, Buffer.from("audio"), "audio/webm");
+    const note = await makeNote(key);
+    await prisma.note.update({
+      where: { id: note.id },
+      data: { transcript: "Korrigiertes Transkript", transcriptStatus: "done" },
+    });
+
+    let calls = 0;
+    const spy = { transcribe: async () => { calls++; return "Überschrieben"; } };
+    const result = await runTranscribeNote(note.id, { storage, transcriber: spy });
+
+    expect(result).toBeNull();
+    expect(calls).toBe(0);
+    const reloaded = await prisma.note.findUnique({ where: { id: note.id } });
+    expect(reloaded?.transcript).toBe("Korrigiertes Transkript");
+    expect(reloaded?.transcriptStatus).toBe("done");
+  });
+
   it("is a no-op (no throw) when the note was already deleted before the job runs", async () => {
     const storage = new LocalStorage(dir);
     const result = await runTranscribeNote("missing-note-id", {
