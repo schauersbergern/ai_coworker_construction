@@ -4,6 +4,7 @@ import { claimForRun, markReady, markFailed, markCancelled, getSnapshot } from "
 import { resolveRegionProvider } from "./server/region/bayern-provider";
 import type { LocationProfile, Coordinate } from "./server/pipeline/profile";
 
+
 export interface GeocodeResult {
   lat: number;
   lon: number;
