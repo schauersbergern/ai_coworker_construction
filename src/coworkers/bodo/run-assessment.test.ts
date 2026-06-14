@@ -96,13 +96,16 @@ describe("runAssessment", () => {
     expect(deps.buildProfile).toHaveBeenCalledTimes(1);
   });
 
-  it("computes scores and narrative on the happy path", async () => {
-    const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
-    await runAssessment(a.id, { ...deps, generateNarrative: vi.fn(async () => "Text") });
+  it("computes scores and passes the snapshot systemPrompt through to the narrative generator", async () => {
+    const gen = vi.fn(async () => "Text");
+    // Partieller Snapshot: resolveConfig merged ihn über die Defaults → systemPrompt überschrieben.
+    const a = await createAssessment("org1", "addr", { snapshot: { narrative: { systemPrompt: "MEIN PROMPT" } }, version: 0 });
+    await runAssessment(a.id, { ...deps, generateNarrative: gen });
     const after = await prisma.assessment.findUnique({ where: { id: a.id } });
     expect(after?.status).toBe("ready");
     expect(after?.narrative).toBe("Text");
     expect(after?.scores).toBeTruthy();
+    expect(gen).toHaveBeenCalledWith(expect.objectContaining({ systemPrompt: "MEIN PROMPT" }));
   });
 
   it("stays ready with null narrative if the generator throws", async () => {

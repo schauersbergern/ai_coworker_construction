@@ -40,6 +40,8 @@ export const generateReport = inngest.createFunction(
   },
 );
 
+// Entspricht Inngests `retries` (0-indexierter `attempt`): maxAttempts === retries, NICHT
+// retries+1. Beim letzten Versuch (attempt === maxAttempts) persistiert der Job statt zu werfen.
 const RUN_ASSESSMENT_RETRIES = 3;
 
 export const runAssessmentJob = inngest.createFunction(
