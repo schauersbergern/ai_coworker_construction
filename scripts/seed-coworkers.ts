@@ -2,17 +2,19 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+const COWORKER_IDS = ["franz", "bodo"] as const;
+
 /**
- * Backfill: schaltet Franz für alle bestehenden Organisationen frei.
+ * Backfill: schaltet Franz und Bodo für alle bestehenden Organisationen frei.
  * Idempotent über die @@unique([orgId, coworkerId])-Constraint (skipDuplicates).
  */
 async function main() {
   const orgs = await prisma.organization.findMany({ select: { id: true } });
-  const result = await prisma.orgModule.createMany({
-    data: orgs.map((o) => ({ orgId: o.id, coworkerId: "franz", enabled: true, configVersion: 0 })),
-    skipDuplicates: true,
-  });
-  console.log(`seeded franz for ${result.count}/${orgs.length} orgs`);
+  const data = orgs.flatMap((o) =>
+    COWORKER_IDS.map((coworkerId) => ({ orgId: o.id, coworkerId, enabled: true, configVersion: 0 })),
+  );
+  const result = await prisma.orgModule.createMany({ data, skipDuplicates: true });
+  console.log(`seeded ${COWORKER_IDS.join(", ")} across ${orgs.length} orgs (${result.count} new rows)`);
 }
 
 main()
