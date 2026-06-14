@@ -14,7 +14,8 @@
     "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
     "setup:whisper": "bash scripts/whisper-setup.sh",
     "dev:whisper": ".venv-whisper/bin/python scripts/whisper_server.py",
-    "seed:coworkers": "tsx scripts/seed-coworkers.ts"
+    "seed:coworkers": "tsx scripts/seed-coworkers.ts",
+    "lint:boundaries": "depcruise src --config .dependency-cruiser.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
@@ -38,6 +39,7 @@
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dependency-cruiser": "^17.4.3",
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
