@@ -96,11 +96,17 @@ export async function runAssessment(
     const cfg = resolveConfig(bodoManifest, { config: snap.configSnapshot, configVersion: snap.configVersion });
     const scores = computeScores(profile, { weights: cfg.scoring.weights });
 
+    // Bei unzureichender Datenlage KEINEN Mikrolage-Text erzeugen: die Scores sind dann
+    // neutrale Platzhalter; ein LLM-Text darüber wäre erfunden. narrative bleibt null.
     let narrative: string | null = null;
-    try {
-      narrative = await deps.generateNarrative({ profile, scores, systemPrompt: cfg.narrative.systemPrompt });
-    } catch (e) {
-      log("bodo", "narrative failed, continuing", { id, error: e instanceof Error ? e.message : String(e) });
+    if (scores.dataSufficient) {
+      try {
+        narrative = await deps.generateNarrative({ profile, scores, systemPrompt: cfg.narrative.systemPrompt });
+      } catch (e) {
+        log("bodo", "narrative failed, continuing", { id, error: e instanceof Error ? e.message : String(e) });
+      }
+    } else {
+      log("bodo", "narrative skipped: insufficient data", { id });
     }
 
     await markReady(id, {

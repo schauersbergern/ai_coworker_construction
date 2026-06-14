@@ -85,63 +85,86 @@ export function DossierDocument({ address, scores, narrative, profile }: Dossier
             {`Koordinaten: ${profile.coordinate.lat.toFixed(6)}, ${profile.coordinate.lon.toFixed(6)}`}
           </Text>
           <Text style={ampelStyle(scores.ampel)}>{ampelLabel(scores.ampel)}</Text>
-          <View style={[styles.row, { marginTop: 6 }]}>
-            <Text style={styles.label}>Vermarktungs-Score:</Text>
-            <Text style={[styles.value, styles.bold]}>{scores.vermarktungsScore} / 100</Text>
-          </View>
+          {scores.dataSufficient && (
+            <View style={[styles.row, { marginTop: 6 }]}>
+              <Text style={styles.label}>Vermarktungs-Score:</Text>
+              <Text style={[styles.value, styles.bold]}>{scores.vermarktungsScore} / 100</Text>
+            </View>
+          )}
         </View>
 
-        {/* 2. Teilscores */}
-        <Text style={styles.sectionTitle}>Teilscores</Text>
-        {Object.entries(scores.teilscores).map(([key, val]) => (
-          <View key={key} style={styles.row}>
-            <Text style={styles.label}>{key}</Text>
-            <Text style={styles.value}>{val}</Text>
-          </View>
-        ))}
-
-        {/* 3. Zielgruppen */}
-        <Text style={styles.sectionTitle}>Zielgruppen</Text>
-        {scores.zielgruppen.map((z) => (
-          <View key={z.id} style={styles.row}>
-            <Text style={z.label === scores.primaereZielgruppe ? [styles.label, styles.highlight] : styles.label}>
-              {z.label === scores.primaereZielgruppe ? `${z.label} ★` : z.label}
+        {/* Unzureichende Datenlage: bewusst KEINE Score-Ausgabe (keine erfundenen Zahlen) */}
+        {!scores.dataSufficient && (
+          <View>
+            <Text style={styles.sectionTitle}>Unzureichende Datenlage</Text>
+            <Text style={styles.bodyText}>
+              {`Für diese Adresse konnten zu wenige Datenquellen abgerufen werden (${scores.dataCoverage.available}/${scores.dataCoverage.total}). Es wird bewusst keine Bewertung (Score, Zielgruppen, Investitions-Signal, Mikrolage) ausgewiesen — fehlende Daten sind keine Aussage. Die tatsächlich abgerufenen Datenpunkte sind unten dokumentiert.`}
             </Text>
-            <Text style={z.label === scores.primaereZielgruppe ? [styles.value, styles.highlight] : styles.value}>
-              {z.score}
-            </Text>
-          </View>
-        ))}
-        <View style={[styles.row, { marginTop: 4 }]}>
-          <Text style={styles.label}>Primäre Zielgruppe:</Text>
-          <Text style={[styles.value, styles.bold]}>{scores.primaereZielgruppe}</Text>
-        </View>
-
-        {/* 4. Investitions-Signal */}
-        <Text style={styles.sectionTitle}>Investitions-Signal</Text>
-        <View style={styles.row}>
-          <Text style={styles.label}>Bewertung:</Text>
-          <Text style={[styles.value, styles.bold]}>{scores.investitionsSignal.label}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Score:</Text>
-          <Text style={styles.value}>{scores.investitionsSignal.score} / 100</Text>
-        </View>
-        {scores.investitionsSignal.risiken.length > 0 && (
-          <View style={{ marginTop: 6 }}>
-            <Text style={[styles.bold, { marginBottom: 3 }]}>Risiken:</Text>
-            {scores.investitionsSignal.risiken.map((r, i) => (
-              <Text key={i} style={styles.risikenItem}>{`• ${r}`}</Text>
-            ))}
+            {scores.investitionsSignal.risiken.length > 0 && (
+              <View style={{ marginTop: 6 }}>
+                {scores.investitionsSignal.risiken.map((r, i) => (
+                  <Text key={i} style={styles.risikenItem}>{`• ${r}`}</Text>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
-        {/* 5. Mikrolage-Text */}
-        <Text style={styles.sectionTitle}>Mikrolage</Text>
-        {narrative ? (
-          <Text style={styles.bodyText}>{narrative}</Text>
-        ) : (
-          <Text style={styles.hint}>Kein Mikrolage-Text verfügbar.</Text>
+        {scores.dataSufficient && (
+          <>
+            {/* 2. Teilscores */}
+            <Text style={styles.sectionTitle}>Teilscores</Text>
+            {Object.entries(scores.teilscores).map(([key, val]) => (
+              <View key={key} style={styles.row}>
+                <Text style={styles.label}>{key}</Text>
+                <Text style={styles.value}>{val}</Text>
+              </View>
+            ))}
+
+            {/* 3. Zielgruppen */}
+            <Text style={styles.sectionTitle}>Zielgruppen</Text>
+            {scores.zielgruppen.map((z) => (
+              <View key={z.id} style={styles.row}>
+                <Text style={z.label === scores.primaereZielgruppe ? [styles.label, styles.highlight] : styles.label}>
+                  {z.label === scores.primaereZielgruppe ? `${z.label} ★` : z.label}
+                </Text>
+                <Text style={z.label === scores.primaereZielgruppe ? [styles.value, styles.highlight] : styles.value}>
+                  {z.score}
+                </Text>
+              </View>
+            ))}
+            <View style={[styles.row, { marginTop: 4 }]}>
+              <Text style={styles.label}>Primäre Zielgruppe:</Text>
+              <Text style={[styles.value, styles.bold]}>{scores.primaereZielgruppe}</Text>
+            </View>
+
+            {/* 4. Investitions-Signal */}
+            <Text style={styles.sectionTitle}>Investitions-Signal</Text>
+            <View style={styles.row}>
+              <Text style={styles.label}>Bewertung:</Text>
+              <Text style={[styles.value, styles.bold]}>{scores.investitionsSignal.label}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Score:</Text>
+              <Text style={styles.value}>{scores.investitionsSignal.score} / 100</Text>
+            </View>
+            {scores.investitionsSignal.risiken.length > 0 && (
+              <View style={{ marginTop: 6 }}>
+                <Text style={[styles.bold, { marginBottom: 3 }]}>Risiken:</Text>
+                {scores.investitionsSignal.risiken.map((r, i) => (
+                  <Text key={i} style={styles.risikenItem}>{`• ${r}`}</Text>
+                ))}
+              </View>
+            )}
+
+            {/* 5. Mikrolage-Text */}
+            <Text style={styles.sectionTitle}>Mikrolage</Text>
+            {narrative ? (
+              <Text style={styles.bodyText}>{narrative}</Text>
+            ) : (
+              <Text style={styles.hint}>Kein Mikrolage-Text verfügbar.</Text>
+            )}
+          </>
         )}
 
         {/* 6. Datenpunkte */}

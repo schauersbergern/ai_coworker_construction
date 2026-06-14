@@ -14,7 +14,11 @@ const deps: RunAssessmentDeps = {
     district: ok("Fasangarten", meta),
     plz: ok("81549", meta),
     elevation: ok(550, meta),
-    fields: {},
+    // pois+transit vorhanden → dataSufficient=true (Narrative wird erzeugt).
+    fields: {
+      pois: ok({ supermarket: { count: 1, nearestM: 300 } }, meta),
+      transit: ok({ nearest: { distanceM: 200 } }, meta),
+    },
   })),
   geocode: vi.fn(async () => ({ lat: 48.0865, lon: 11.5951, district: "Fasangarten", plz: "81549", state: "Bayern" })),
   generateNarrative: vi.fn(async () => "Mikrolage"),
@@ -122,5 +126,23 @@ describe("runAssessment", () => {
     const after = await prisma.assessment.findUnique({ where: { id: a.id } });
     expect(after?.status).toBe("ready");
     expect(after?.narrative).toBeNull();
+  });
+
+  it("skips narrative generation entirely when data is insufficient (no LLM call)", async () => {
+    const gen = vi.fn(async () => "Text");
+    const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
+    // buildProfile ohne pois/transit → dataSufficient=false → Narrative nicht erzeugen.
+    const sparse = {
+      ...deps,
+      buildProfile: vi.fn(async (coord) => ({
+        coordinate: coord, district: ok("X", meta), plz: ok("1", meta), elevation: ok(1, meta), fields: {},
+      })),
+      generateNarrative: gen,
+    };
+    await runAssessment(a.id, sparse);
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("ready");
+    expect(after?.narrative).toBeNull();
+    expect(gen).not.toHaveBeenCalled();
   });
 });

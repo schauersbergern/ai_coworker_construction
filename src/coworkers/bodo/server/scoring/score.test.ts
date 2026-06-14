@@ -82,4 +82,22 @@ describe("computeScores", () => {
     expect(s.ampel).toBe("gelb");
     expect(s.investitionsSignal.risiken).toContain("Denkmalschutz (Einzel/Ensemble)");
   });
+
+  it("never goes green/positive when the hard-risk sources (flood+nature) are unknown", () => {
+    const strongPois = ok(
+      { supermarket: { count: 3, nearestM: 150 }, pharmacy: { count: 2, nearestM: 100 }, school: { count: 4, nearestM: 120 }, park: { count: 2, nearestM: 80 }, restaurant: { count: 5, nearestM: 40 } },
+      { source: "", license: "", confidence: "medium" },
+    );
+    const p = profile({
+      pois: strongPois,
+      transit: ok({ nearest: { distanceM: 120 } }, { source: "", license: "", confidence: "high" }),
+      // alle Risikoquellen (hochwasser/natur/geologie/denkmal) fehlen
+    });
+    const s = computeScores(p, { weights });
+    expect(s.vermarktungsScore).toBeGreaterThanOrEqual(66); // Basis wäre grün
+    expect(s.dataSufficient).toBe(true);
+    expect(s.ampel).not.toBe("gruen"); // ohne harte Risikodaten kein Grün
+    expect(s.investitionsSignal.label).not.toBe("Positives Signal");
+    expect(s.investitionsSignal.risiken).toContain("Risikolage unvollständig geprüft (Quellen nicht verfügbar)");
+  });
 });

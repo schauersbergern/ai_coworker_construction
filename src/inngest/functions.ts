@@ -49,6 +49,10 @@ export const runAssessmentJob = inngest.createFunction(
     id: "run-assessment",
     retries: RUN_ASSESSMENT_RETRIES,
     idempotency: "event.data.assessmentId",
+    // Anwendungsweites Geocoding-Limit: max. 1 Job-Start/s ÜBER ALLE Worker/Instanzen hinweg
+    // (Inngest-seitig erzwungen). Da jeder Job genau 1 Nominatim-Geocode macht, hält das die
+    // Nominatim-Usage-Policy (1 req/s) global ein — anders als der reine In-Memory-Throttle.
+    throttle: { limit: 1, period: "1s" },
     triggers: [{ event: "assessment/requested" }],
     onFailure: async ({ event, error }: { event: { data: { event?: { data?: { assessmentId?: string } } } }; error: Error }) => {
       const assessmentId = event.data?.event?.data?.assessmentId;

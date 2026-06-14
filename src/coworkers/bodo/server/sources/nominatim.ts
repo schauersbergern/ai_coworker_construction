@@ -6,9 +6,10 @@ interface NominatimHit {
   address?: { suburb?: string; city_district?: string; postcode?: string; state?: string };
 }
 
-// Nominatim Usage Policy: max 1 Request/s. In-Memory-Throttle serialisiert Aufrufe und hält
-// ≥1s Abstand — innerhalb DIESES Prozesses (genügt fürs MVP, Spec §8; mehrere Worker umgeht
-// das nicht → dafür Self-Host / Inngest-throttle).
+// Nominatim Usage Policy: max 1 Request/s. Das ANWENDUNGSWEITE Limit über alle Worker hinweg
+// erzwingt der Inngest-`throttle` auf der run-assessment-Function (1 Job-Start/s, 1 Geocode/Job).
+// Dieser In-Memory-Throttle ist nur ein sekundärer In-Prozess-Guard (z.B. für Aufrufe außerhalb
+// des Jobs) und hält zusätzlich ≥1s Abstand innerhalb dieses Prozesses.
 const MIN_INTERVAL_MS = 1000;
 let lastCallAt = 0;
 let gate: Promise<unknown> = Promise.resolve();

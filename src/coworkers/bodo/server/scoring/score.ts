@@ -76,6 +76,16 @@ export function computeScores(p: LocationProfile, cfg: { weights: ScoringWeights
   const dataCoverage = { available: coverageFields.filter((v) => v !== null).length, total: coverageFields.length };
   const dataSufficient = pois !== null || transit !== null;
 
+  // Risiko-Abdeckung: fehlende Risikodaten ≠ Risikofreiheit. Ein "Grün"/positives Signal darf
+  // nur entstehen, wenn die HARTEN Risikoquellen (Hochwasser + Naturschutz, Severity 3) bekannt
+  // sind — sonst würde ein Standort mit starker Infrastruktur trotz ungeprüfter Risiken grün.
+  const riskFields = [flood, geol, natur, denkmal];
+  const riskComplete = riskFields.every((v) => v !== null);
+  const hardRiskKnown = flood !== null && natur !== null;
+  if (dataSufficient && !riskComplete) {
+    risiken.push({ label: "Risikolage unvollständig geprüft (Quellen nicht verfügbar)", severity: 0 });
+  }
+
   let ampel: Ampel;
   if (!dataSufficient) {
     ampel = "unbekannt";
@@ -84,14 +94,18 @@ export function computeScores(p: LocationProfile, cfg: { weights: ScoringWeights
   } else {
     ampel = vermarktungsScore >= 66 ? "gruen" : vermarktungsScore >= 40 ? "gelb" : "rot";
     if (riskPenalty >= 2 && ampel === "gruen") ampel = "gelb";
+    if (!hardRiskKnown && ampel === "gruen") ampel = "gelb"; // ohne harte Risikodaten kein Grün
   }
 
   const signalScore = Math.max(0, Math.min(100, vermarktungsScore - riskPenalty * 8));
+  let signalLabel: string;
+  if (!dataSufficient) signalLabel = "Unzureichende Datenlage";
+  else if (hardRisk) signalLabel = "Erhöhtes Risiko";
+  else if (!hardRiskKnown) signalLabel = "Risiken ungeprüft"; // kein positives Signal ohne Risikodaten
+  else signalLabel = signalScore >= 66 ? "Positives Signal" : signalScore >= 40 ? "Neutral" : "Entwicklungslage";
   const investitionsSignal = {
     score: signalScore,
-    label: !dataSufficient
-      ? "Unzureichende Datenlage"
-      : hardRisk ? "Erhöhtes Risiko" : signalScore >= 66 ? "Positives Signal" : signalScore >= 40 ? "Neutral" : "Entwicklungslage",
+    label: signalLabel,
     risiken: risiken.map((r) => r.label),
   };
 
