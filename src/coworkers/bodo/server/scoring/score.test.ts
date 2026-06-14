@@ -50,4 +50,21 @@ describe("computeScores", () => {
     expect(s.investitionsSignal.risiken).toContain("Hochwassergefahr (HQ100/häufig)");
     expect(s.investitionsSignal.score).toBeLessThan(s.vermarktungsScore);
   });
+
+  it("demotes a green Ampel to gelb on a medium risk (no hard risk)", () => {
+    const strongPois = ok(
+      { supermarket: { count: 3, nearestM: 150 }, pharmacy: { count: 2, nearestM: 100 }, school: { count: 4, nearestM: 120 }, park: { count: 2, nearestM: 80 }, restaurant: { count: 5, nearestM: 40 } },
+      { source: "", license: "", confidence: "medium" },
+    );
+    const p = profile({
+      pois: strongPois,
+      transit: ok({ nearest: { distanceM: 120 } }, { source: "", license: "", confidence: "high" }),
+      // Denkmalschutz = severity 2 (kein hartes Risiko) → bremst grün auf gelb.
+      denkmal: ok({ einzeldenkmal: true, ensemble: false, bodendenkmal: false }, { source: "", license: "", confidence: "high" }),
+    });
+    const s = computeScores(p, { weights });
+    expect(s.vermarktungsScore).toBeGreaterThanOrEqual(66); // Basis wäre grün
+    expect(s.ampel).toBe("gelb");
+    expect(s.investitionsSignal.risiken).toContain("Denkmalschutz (Einzel/Ensemble)");
+  });
 });
