@@ -1,5 +1,6 @@
 import { fetchJson } from "./http";
 import { ok, type DataPoint } from "./types";
+import { OVERPASS } from "./endpoints";
 import type { Coordinate, SourceContext } from "../pipeline/profile";
 
 const CATEGORIES: Record<string, string> = {
@@ -28,7 +29,7 @@ export async function fetchPois(ctx: SourceContext, radiusM = 1000): Promise<Dat
   const parts = Object.values(CATEGORIES).map((q) => `${q}(around:${radiusM},${c.lat},${c.lon});`).join("");
   const query = `[out:json][timeout:25];(${parts});out center;`;
   const data = await fetchJson<{ elements: { lat?: number; lon?: number; center?: Coordinate; tags?: Record<string, string> }[] }>(
-    "https://overpass-api.de/api/interpreter",
+    OVERPASS.interpreter,
     { method: "POST", body: query },
   );
   const result: PoiResult = {};

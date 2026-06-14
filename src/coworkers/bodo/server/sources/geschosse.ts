@@ -1,5 +1,6 @@
 import { fetchJson } from "./http";
 import { ok, unavailable, type DataPoint } from "./types";
+import { OVERPASS } from "./endpoints";
 import type { SourceContext } from "../pipeline/profile";
 
 export interface GeschosseInfo {
@@ -12,7 +13,7 @@ export async function fetchGeschosse(ctx: SourceContext): Promise<DataPoint<Gesc
   const { lat, lon } = ctx.coord;
   const query = `[out:json][timeout:25];(way["building"]["building:levels"](around:120,${lat},${lon}););out tags;`;
   const data = await fetchJson<{ elements: { tags?: { "building:levels"?: string } }[] }>(
-    "https://overpass-api.de/api/interpreter",
+    OVERPASS.interpreter,
     { method: "POST", body: query },
   );
   const levels = data.elements

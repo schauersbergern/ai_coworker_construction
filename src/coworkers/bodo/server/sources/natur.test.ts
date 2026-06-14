@@ -1,7 +1,9 @@
-import { it, expect, vi } from "vitest";
+import { it, expect, vi, afterEach } from "vitest";
 vi.mock("./wms", () => ({ wfsHasFeatureAtPoint: vi.fn(), wmsHasFeatureAtPoint: vi.fn() }));
 import { wfsHasFeatureAtPoint, wmsHasFeatureAtPoint } from "./wms";
 import { fetchNatur } from "./natur";
+
+afterEach(() => vi.clearAllMocks());
 
 const ctx = { coord: { lat: 48.0865, lon: 11.5951 }, district: null, plz: null };
 

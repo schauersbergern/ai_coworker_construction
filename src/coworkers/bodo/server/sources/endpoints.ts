@@ -45,6 +45,8 @@ export const DGM1 = {
   valueProp: "GRAY_INDEX",
 } as const;
 
+export const OVERPASS = { interpreter: "https://overpass-api.de/api/interpreter" } as const;
+
 export const PVGIS = { base: "https://re.jrc.ec.europa.eu/api/v5_2/PVcalc" } as const;
 
 // Primärquelle laut Registry ist UBA (https://luftqualitaet.api.bund.dev/); Open-Meteo ist
