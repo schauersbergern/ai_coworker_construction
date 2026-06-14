@@ -133,7 +133,7 @@ export default async function AssessmentDetail({ params }: { params: Promise<{ i
       )}
 
       {(a.status === "failed" || a.status === "cancelled") && (
-        <p className="text-red-600 mt-4">Fehler: {a.error}</p>
+        <p className="text-red-600 mt-4">Fehler: {a.error ?? "Unbekannter Fehler"}</p>
       )}
 
       {(a.status === "pending" || a.status === "running") && (

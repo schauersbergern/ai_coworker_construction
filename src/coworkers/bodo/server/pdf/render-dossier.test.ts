@@ -12,5 +12,6 @@ describe("renderDossier", () => {
       profile: { coordinate: { lat: 48, lon: 11 }, fields: { hochwasser: { value: { hq100: true }, status: "ok", source: "LfU", license: "CC BY-SA 4.0", confidence: "high", retrievedAt: "" }, sozio: { value: null, status: "unavailable", reason: "nur München", source: "X", license: "Y", confidence: "low", retrievedAt: "" } } } as any,
     });
     expect(buf.length).toBeGreaterThan(1000);
+    expect(buf.subarray(0, 4).toString()).toBe("%PDF"); // gültige PDF-Magic-Bytes
   });
 });

@@ -13,6 +13,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!(await isAvailable(session.orgId, "bodo"))) return new NextResponse("not available", { status: 403 });
   const a = await getAssessment(session.orgId, id);
   if (!a || a.status !== "ready") return new NextResponse("not ready", { status: 404 });
+  // scores/profile sind im ready-Zustand stets gesetzt (markReady schreibt sie atomar);
+  // defensiver Guard, damit ein inkonsistenter Datensatz 404 statt einer 500 liefert.
+  if (!a.scores || !a.profile) return new NextResponse("data not ready", { status: 404 });
   const buf = await renderDossier({
     address: a.address,
     scores: a.scores as unknown as Scores,
