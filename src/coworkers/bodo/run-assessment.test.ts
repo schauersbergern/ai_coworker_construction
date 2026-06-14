@@ -17,6 +17,7 @@ const deps: RunAssessmentDeps = {
     fields: {},
   })),
   geocode: vi.fn(async () => ({ lat: 48.0865, lon: 11.5951, district: "Fasangarten", plz: "81549", state: "Bayern" })),
+  generateNarrative: vi.fn(async () => "Mikrolage"),
 };
 
 describe("runAssessment", () => {
@@ -93,5 +94,22 @@ describe("runAssessment", () => {
     const after = await prisma.assessment.findUnique({ where: { id: a.id } });
     expect(after?.status).toBe("ready");
     expect(deps.buildProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it("computes scores and narrative on the happy path", async () => {
+    const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
+    await runAssessment(a.id, { ...deps, generateNarrative: vi.fn(async () => "Text") });
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("ready");
+    expect(after?.narrative).toBe("Text");
+    expect(after?.scores).toBeTruthy();
+  });
+
+  it("stays ready with null narrative if the generator throws", async () => {
+    const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
+    await runAssessment(a.id, { ...deps, generateNarrative: vi.fn(async () => { throw new Error("anthropic down"); }) });
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("ready");
+    expect(after?.narrative).toBeNull();
   });
 });

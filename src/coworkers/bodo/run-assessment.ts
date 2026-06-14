@@ -3,6 +3,10 @@ import { log } from "@/server/log";
 import { claimForRun, markReady, markFailed, markCancelled, getSnapshot } from "./server/assessment/assessment.internal";
 import { resolveRegionProvider } from "./server/region/bayern-provider";
 import type { LocationProfile, Coordinate } from "./server/pipeline/profile";
+import { resolveConfig } from "@/coworkers";
+import { bodoManifest } from "./manifest";
+import { computeScores } from "./server/scoring/score";
+import type { NarrativeInput } from "./server/narrative/narrative";
 
 
 export interface GeocodeResult {
@@ -21,6 +25,7 @@ export interface RunAssessmentDeps {
     snapshot: unknown,
     geo: { district: string | null; plz: string | null },
   ) => Promise<LocationProfile>;
+  generateNarrative: (input: NarrativeInput) => Promise<string>;
 }
 
 /** attempt/maxAttempts kommen aus dem Inngest-Kontext (Step 4). Default = letzter Versuch. */
@@ -86,10 +91,22 @@ export async function runAssessment(
       { district: geo.district, plz: geo.plz },
     );
 
+    // configSnapshot über das Manifest-Schema migrieren + validieren (nicht roh casten):
+    // resolveConfig(version → aktuell) + deepMerge(defaults) + parse, Fallback auf Defaults.
+    const cfg = resolveConfig(bodoManifest, { config: snap.configSnapshot, configVersion: snap.configVersion });
+    const scores = computeScores(profile, { weights: cfg.scoring.weights });
+
+    let narrative: string | null = null;
+    try {
+      narrative = await deps.generateNarrative({ profile, scores, systemPrompt: cfg.narrative.systemPrompt });
+    } catch (e) {
+      log("bodo", "narrative failed, continuing", { id, error: e instanceof Error ? e.message : String(e) });
+    }
+
     await markReady(id, {
       profile: profile as unknown as Prisma.InputJsonValue,
-      scores: {} as Prisma.InputJsonValue, // Scoring folgt in Plan 3
-      narrative: null, // Narrative folgt in Plan 3
+      scores: scores as unknown as Prisma.InputJsonValue,
+      narrative,
       lat: geo.lat,
       lon: geo.lon,
     });

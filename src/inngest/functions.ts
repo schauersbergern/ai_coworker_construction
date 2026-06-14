@@ -11,6 +11,8 @@ import { runAssessment } from "@/coworkers/bodo/run-assessment";
 import { geocode } from "@/coworkers/bodo/server/sources/nominatim";
 import { buildProfile } from "@/coworkers/bodo/server/pipeline/build-profile";
 import { failIfNotTerminal } from "@/coworkers/bodo/server/assessment/assessment.internal";
+import { buildNarrative } from "@/coworkers/bodo/server/narrative/narrative";
+import { ClaudeNarrativeGenerator } from "@/coworkers/bodo/server/narrative/claude-narrative";
 
 export const transcribeNote = inngest.createFunction(
   { id: "transcribe-note", retries: 2, triggers: [{ event: "note/created" }] },
@@ -58,7 +60,7 @@ export const runAssessmentJob = inngest.createFunction(
     log("inngest", "run-assessment invoked", { assessmentId, attempt });
     await runAssessment(
       assessmentId,
-      { isAvailable, geocode, buildProfile },
+      { isAvailable, geocode, buildProfile, generateNarrative: (input) => buildNarrative(input, new ClaudeNarrativeGenerator()) },
       { attempt, maxAttempts: RUN_ASSESSMENT_RETRIES },
     );
     return { assessmentId };
