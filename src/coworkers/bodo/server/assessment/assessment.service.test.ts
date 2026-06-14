@@ -34,4 +34,14 @@ describe("assessment.service", () => {
     expect(await claimForRun(a.id)).toBe(true);
     expect(await claimForRun(a.id)).toBe(false); // already running
   });
+
+  it("listAssessments returns only the org's own assessments", async () => {
+    await makeOrg("org1");
+    await makeOrg("org2");
+    await createAssessment("org1", "a1", { snapshot: {}, version: 0 });
+    await createAssessment("org2", "a2", { snapshot: {}, version: 0 });
+    const list = await listAssessments("org1");
+    expect(list).toHaveLength(1);
+    expect(list[0]?.address).toBe("a1");
+  });
 });
