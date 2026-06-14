@@ -130,6 +130,14 @@ describe("bodo config", () => {
     expect(bodoDefaultConfig.sources.hochwasser).toBe(true);
     expect(bodoDefaultConfig.sources.pois).toBe(true);
   });
+
+  it("rejects negative scoring weights", () => {
+    const bad = {
+      ...bodoDefaultConfig,
+      scoring: { weights: { ...bodoDefaultConfig.scoring.weights, oepnv: -1 } },
+    };
+    expect(() => bodoConfigSchema.parse(bad)).toThrow();
+  });
 });
 ```
 
@@ -145,10 +153,24 @@ Expected: FAIL — `./config` existiert nicht.
 ```ts
 import { z } from "zod";
 
+// Feste Gewichts-Keys (eine pro Teilscore) mit nichtnegativen Werten. KEIN z.record:
+// unbekannte/negative Gewichte würden den Nenner verfälschen und den 0–100-Score aus
+// dem Wertebereich treiben (Finding: ungültige Scores).
+export const scoringWeightsSchema = z.object({
+  nahversorgung: z.number().min(0),
+  oepnv: z.number().min(0),
+  schulen: z.number().min(0),
+  gruen: z.number().min(0),
+  walkability: z.number().min(0),
+  kaufkraft: z.number().min(0),
+  gastroKultur: z.number().min(0),
+});
+export type ScoringWeights = z.infer<typeof scoringWeightsSchema>;
+
 export const bodoConfigSchema = z.object({
   narrative: z.object({ systemPrompt: z.string().min(1) }),
   scoring: z.object({
-    weights: z.record(z.string(), z.number()),
+    weights: scoringWeightsSchema,
   }),
   sources: z.object({
     geocode: z.boolean(),
@@ -280,6 +302,13 @@ import { bodoManifest } from "./bodo/manifest";
 registerCoworker(bodoManifest);
 ```
 
+Außerdem `resolveConfig` aus dem Fundament re-exportieren (der Bodo-Job nutzt sie in Plan 3,
+um den `configSnapshot` zu migrieren + validieren — ohne tief in `@/coworkers/resolve` zu greifen):
+
+```ts
+export { getResolvedCoworkers, getResolvedCoworker, isAvailable, resolveConfig } from "./resolve";
+```
+
 - [ ] **Step 3: Typecheck + bestehende Registry-Tests**
 
 Run: `pnpm exec tsc --noEmit && pnpm test src/coworkers/registry.test.ts src/coworkers/validate.test.ts`
@@ -395,6 +424,18 @@ export interface Coordinate {
   lon: number;
 }
 
+/**
+ * Einheitlicher Eingabe-Kontext für JEDEN Quellen-Adapter: Koordinate + Geocoding-Felder.
+ * Adapter haben durchgängig die Signatur `fetchX(ctx: SourceContext)`. Quellen, die den
+ * Stadtteil/PLZ brauchen (z.B. `sozio`), lesen `ctx.district`/`ctx.plz`; rein
+ * koordinatenbasierte Adapter nutzen nur `ctx.coord`.
+ */
+export interface SourceContext {
+  coord: Coordinate;
+  district: string | null;
+  plz: string | null;
+}
+
 /** Normalisiertes Standortprofil. Jedes Feld trägt seinen DataPoint. */
 export interface LocationProfile {
   coordinate: Coordinate;
@@ -438,9 +479,13 @@ import { resolveRegionProvider } from "./bayern-provider";
 describe("region provider", () => {
   it("returns the bayern provider for a Munich coordinate", () => {
     const p = resolveRegionProvider({ lat: 48.0865, lon: 11.5951 });
-    expect(p.id).toBe("bayern");
-    expect(p.sourceIds).toContain("hochwasser");
-    expect(p.sourceIds).toContain("pois");
+    expect(p?.id).toBe("bayern");
+    expect(p?.sourceIds).toContain("hochwasser");
+    expect(p?.sourceIds).toContain("pois");
+  });
+
+  it("returns null for a coordinate outside Bayern (Berlin)", () => {
+    expect(resolveRegionProvider({ lat: 52.52, lon: 13.405 })).toBeNull();
   });
 });
 ```
@@ -479,8 +524,25 @@ const BAYERN_SOURCES: SourceId[] = [
   "geologie", "solar", "luft", "geschosse", "sozio", "denkmal",
 ];
 
-/** v1: immer Bayern. Naht für weitere Provider (NRW/AT/CH). */
-export function resolveRegionProvider(_coord: Coordinate): RegionProvider {
+// Grobe Bounding-Box für Bayern als schneller Vorfilter. Bewusst konservativ; die
+// präzise Abgrenzung (Punkt könnte in BW/AT/CZ liegen) macht der Job zusätzlich über das
+// Nominatim-`state`-Feld (state === "Bayern"). Polygon-Verfeinerung später.
+const BAYERN_BBOX = { minLat: 47.27, maxLat: 50.57, minLon: 8.97, maxLon: 13.85 };
+
+export function isInBayern(c: Coordinate): boolean {
+  return (
+    c.lat >= BAYERN_BBOX.minLat && c.lat <= BAYERN_BBOX.maxLat &&
+    c.lon >= BAYERN_BBOX.minLon && c.lon <= BAYERN_BBOX.maxLon
+  );
+}
+
+/**
+ * v1: liefert den Bayern-Provider NUR für Koordinaten in Bayern, sonst `null` (kein
+ * Provider → der Job bricht die Bewertung als „außerhalb Bayern" ab, statt bayerische
+ * WMS-Abfragen auf fremde Standorte loszulassen). Naht für weitere Provider (NRW/AT/CH).
+ */
+export function resolveRegionProvider(coord: Coordinate): RegionProvider | null {
+  if (!isInBayern(coord)) return null;
   return { id: "bayern", sourceIds: BAYERN_SOURCES };
 }
 ```
@@ -624,8 +686,24 @@ export async function markCancelled(id: string, reason: string) {
   await prisma.assessment.update({ where: { id }, data: { status: "cancelled", error: reason } });
 }
 
+/**
+ * Setzt einen NICHT-terminalen Datensatz (pending|running) auf failed. Für den
+ * Inngest-onFailure-Pfad (harter Crash/Timeout, bei dem der Job-Catch nie lief) —
+ * verhindert ein dauerhaft in `running` hängendes Assessment. Bedingt (updateMany),
+ * damit ein bereits `ready`/`cancelled` gewordener Datensatz nicht überschrieben wird.
+ */
+export async function failIfNotTerminal(id: string, error: string) {
+  await prisma.assessment.updateMany({
+    where: { id, status: { in: ["pending", "running"] } },
+    data: { status: "failed", error },
+  });
+}
+
 export async function getSnapshot(id: string) {
-  return prisma.assessment.findUnique({ where: { id }, select: { orgId: true, address: true, status: true, configSnapshot: true } });
+  return prisma.assessment.findUnique({
+    where: { id },
+    select: { orgId: true, address: true, status: true, configSnapshot: true, configVersion: true },
+  });
 }
 ```
 
@@ -666,7 +744,7 @@ const deps = {
     coordinate: coord, district: { value: "Fasangarten", status: "ok" },
     plz: { value: "81549", status: "ok" }, elevation: { value: 550, status: "ok" }, fields: {},
   })),
-  geocode: vi.fn(async () => ({ lat: 48.0865, lon: 11.5951, district: "Fasangarten", plz: "81549", elevation: 550 })),
+  geocode: vi.fn(async () => ({ lat: 48.0865, lon: 11.5951, district: "Fasangarten", plz: "81549", state: "Bayern" })),
 } as any;
 
 describe("runAssessment", () => {
@@ -690,7 +768,7 @@ describe("runAssessment", () => {
   it("is idempotent: second run is a no-op (status stays ready)", async () => {
     const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
     await runAssessment(a.id, deps);
-    await runAssessment(a.id, deps); // claim fails second time
+    await runAssessment(a.id, deps); // 2. Lauf sieht status=ready → terminaler No-op
     expect(deps.buildProfile).toHaveBeenCalledTimes(1);
   });
 
@@ -699,6 +777,33 @@ describe("runAssessment", () => {
     await runAssessment(a.id, { ...deps, isAvailable: vi.fn(async () => false) });
     const after = await prisma.assessment.findUnique({ where: { id: a.id } });
     expect(after?.status).toBe("cancelled");
+  });
+
+  it("fails for an address outside Bayern", async () => {
+    const a = await createAssessment("org1", "Alexanderplatz, Berlin", { snapshot: {}, version: 0 });
+    await runAssessment(a.id, {
+      ...deps,
+      geocode: vi.fn(async () => ({ lat: 52.52, lon: 13.405, district: "Mitte", plz: "10178", state: "Berlin" })),
+    });
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("failed");
+    expect(after?.error).toMatch(/außerhalb Bayern/);
+  });
+
+  it("rethrows a transient error while retries remain (stays running)", async () => {
+    const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
+    const flaky = { ...deps, buildProfile: vi.fn(async () => { throw new Error("overpass 502"); }) };
+    await expect(runAssessment(a.id, flaky, { attempt: 0, maxAttempts: 3 })).rejects.toThrow("overpass 502");
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("running"); // bleibt running → Inngest retryt
+  });
+
+  it("marks failed on the last attempt instead of hanging in running", async () => {
+    const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
+    const flaky = { ...deps, buildProfile: vi.fn(async () => { throw new Error("overpass 502"); }) };
+    await runAssessment(a.id, flaky, { attempt: 3, maxAttempts: 3 });
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("failed");
   });
 });
 ```
@@ -714,12 +819,16 @@ Expected: FAIL — `./run-assessment` fehlt.
 
 ```ts
 import "server-only";
+import type { Prisma } from "@prisma/client";
 import { log } from "@/server/log";
 import { claimForRun, markReady, markFailed, markCancelled, getSnapshot } from "./server/assessment/assessment.internal";
+import { resolveRegionProvider } from "./server/region/bayern-provider";
 import type { LocationProfile, Coordinate } from "./server/pipeline/profile";
 
 export interface GeocodeResult {
-  lat: number; lon: number; district: string | null; plz: string | null; elevation: number | null;
+  lat: number; lon: number;
+  district: string | null; plz: string | null;
+  state: string | null; // Bundesland (Nominatim address.state) — präziser Bayern-Check
 }
 
 export interface RunAssessmentDeps {
@@ -733,24 +842,52 @@ export interface RunAssessmentDeps {
   ) => Promise<LocationProfile>;
 }
 
-export async function runAssessment(id: string, deps: RunAssessmentDeps): Promise<void> {
+/**
+ * attempt/maxAttempts kommen aus dem Inngest-Kontext (Step 5). Default = „letzter Versuch":
+ * direkte Unit-Aufrufe persistieren transiente Fehler sofort als failed (kein ewiges running).
+ */
+export interface RunContext { attempt: number; maxAttempts: number; }
+
+export async function runAssessment(
+  id: string,
+  deps: RunAssessmentDeps,
+  ctx: RunContext = { attempt: 0, maxAttempts: 0 },
+): Promise<void> {
   const snap = await getSnapshot(id);
   if (!snap) { log("bodo", "run-assessment: not found", { id }); return; }
-  if (snap.status !== "pending") { log("bodo", "run-assessment: no-op (terminal/running)", { id, status: snap.status }); return; }
+
+  // Terminale Zustände = idempotente No-ops.
+  if (snap.status === "ready" || snap.status === "failed" || snap.status === "cancelled") {
+    log("bodo", "run-assessment: no-op (terminal)", { id, status: snap.status });
+    return;
+  }
 
   if (!(await deps.isAvailable(snap.orgId, "bodo"))) {
     await markCancelled(id, "coworker not available");
     return;
   }
 
-  if (!(await claimForRun(id))) {
-    log("bodo", "run-assessment: claim lost", { id });
-    return;
+  // pending → atomar claimen (gegen konkurrierende Jobs). running → Inngest-RETRY desselben
+  // Runs: re-entrant fortsetzen, sonst liefe der Retry leer und der Datensatz bliebe ewig
+  // running. Doppelte Events werden zusätzlich auf Inngest-Ebene via idempotency-Key
+  // dedupliziert (Step 5).
+  if (snap.status === "pending") {
+    if (!(await claimForRun(id))) { log("bodo", "run-assessment: claim lost", { id }); return; }
   }
 
   try {
     const geo = await deps.geocode(snap.address);
+    // Terminalfehler (Retry zwecklos): markFailed + return — NICHT werfen.
     if (!geo) { await markFailed(id, "Adresse konnte nicht geocodiert werden"); return; }
+
+    const region = resolveRegionProvider({ lat: geo.lat, lon: geo.lon });
+    if (!region || (geo.state != null && geo.state !== "Bayern")) {
+      await markFailed(
+        id,
+        `Adresse außerhalb Bayern (${geo.state ?? "unbekannt"}); der MVP unterstützt nur bayerische Adressen.`,
+      );
+      return;
+    }
 
     const profile = await deps.buildProfile(
       { lat: geo.lat, lon: geo.lon },
@@ -759,12 +896,16 @@ export async function runAssessment(id: string, deps: RunAssessmentDeps): Promis
     );
 
     await markReady(id, {
-      profile: profile as unknown as object,
-      scores: {}, // Scoring folgt in Plan 3
-      narrative: null, // Narrative folgt in Plan 3
+      profile: profile as unknown as Prisma.InputJsonValue,
+      scores: {} as Prisma.InputJsonValue, // Scoring folgt in Plan 3
+      narrative: null,                     // Narrative folgt in Plan 3
       lat: geo.lat, lon: geo.lon,
     });
   } catch (e) {
+    // Transienter/unerwarteter Fehler: solange Versuche übrig sind werfen → Inngest retryt
+    // (Status bleibt running, nächster Versuch re-entert). Beim letzten Versuch persistent
+    // als failed markieren, damit nichts in running hängen bleibt.
+    if (ctx.attempt < ctx.maxAttempts) throw e;
     await markFailed(id, e instanceof Error ? e.message : "unbekannter Fehler");
   }
 }
@@ -812,7 +953,7 @@ import type { GeocodeResult } from "../../run-assessment";
 
 // Plan 2 ersetzt diesen Stub durch einen echten Nominatim-Abruf.
 export async function geocode(_address: string): Promise<GeocodeResult | null> {
-  return { lat: 48.0865, lon: 11.5951, district: null, plz: null, elevation: null };
+  return { lat: 48.0865, lon: 11.5951, district: null, plz: null, state: "Bayern" };
 }
 ```
 
@@ -823,14 +964,40 @@ import { isAvailable } from "@/coworkers";
 import { runAssessment } from "@/coworkers/bodo/run-assessment";
 import { geocode } from "@/coworkers/bodo/server/sources/nominatim";
 import { buildProfile } from "@/coworkers/bodo/server/pipeline/build-profile";
+import { failIfNotTerminal } from "@/coworkers/bodo/server/assessment/assessment.internal";
 ```
 ```ts
+const RUN_ASSESSMENT_RETRIES = 3;
+
 export const runAssessmentJob = inngest.createFunction(
-  { id: "run-assessment", retries: 1, triggers: [{ event: "assessment/requested" }] },
-  async ({ event }: { event: { data: { assessmentId: string } } }) => {
+  {
+    id: "run-assessment",
+    retries: RUN_ASSESSMENT_RETRIES,
+    // Dedupliziert doppelte Events pro Assessment auf Inngest-Ebene (nur EIN Run je
+    // assessmentId im Idempotenzfenster) — so heißt status=running im Job zuverlässig
+    // „Retry desselben Runs" und nicht „zweites paralleles Event".
+    idempotency: "event.data.assessmentId",
+    triggers: [{ event: "assessment/requested" }],
+    // Letzte Rückfalllinie: griff der Job-Catch nicht (harter Crash/Timeout), wird der
+    // Datensatz hier nach erschöpften Retries failed gesetzt — kein ewiges running.
+    onFailure: async ({ event, error }) => {
+      // onFailure liefert das Original-Event unter event.data.event (Inngest-Shape gegen
+      // die installierte Version prüfen).
+      const assessmentId =
+        (event as { data?: { event?: { data?: { assessmentId?: string } } } }).data?.event?.data?.assessmentId;
+      if (assessmentId) {
+        await failIfNotTerminal(assessmentId, error.message ?? "Job nach Retries fehlgeschlagen");
+      }
+    },
+  },
+  async ({ event, attempt }: { event: { data: { assessmentId: string } }; attempt: number }) => {
     const { assessmentId } = event.data;
-    log("inngest", "run-assessment invoked", { assessmentId });
-    await runAssessment(assessmentId, { isAvailable, geocode, buildProfile });
+    log("inngest", "run-assessment invoked", { assessmentId, attempt });
+    await runAssessment(
+      assessmentId,
+      { isAvailable, geocode, buildProfile },
+      { attempt, maxAttempts: RUN_ASSESSMENT_RETRIES },
+    );
     return { assessmentId };
   },
 );
@@ -892,11 +1059,14 @@ export default async function BodoLayout({ children }: { children: React.ReactNo
 
 ```ts
 "use server";
+import type { Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/server/auth/require-session";
-import { isAvailable, getResolvedCoworker } from "@/coworkers";
+import { getResolvedCoworker } from "@/coworkers";
 import { createAssessment } from "@/coworkers/bodo/server/assessment/assessment.service";
+import { failIfNotTerminal } from "@/coworkers/bodo/server/assessment/assessment.internal";
 import { inngest } from "@/inngest/client";
+import { logError } from "@/server/log";
 
 // useActionState-Muster wie Franz (createProjectAction): Eingabefehler werden inline
 // im Formular angezeigt statt in die Error-Boundary geworfen.
@@ -907,20 +1077,33 @@ export async function createAssessmentAction(
   formData: FormData,
 ): Promise<CreateAssessmentState> {
   const session = await requireSession();
-  if (!(await isAvailable(session.orgId, "bodo"))) {
+
+  // getResolvedCoworker liefert ResolvedCoworker | null; config ist nur bei
+  // availability === "available" gesetzt. Beides prüfen (ersetzt das separate isAvailable).
+  const resolved = await getResolvedCoworker(session.orgId, "bodo");
+  if (!resolved || resolved.availability !== "available" || !resolved.config) {
     throw new Error("Coworker nicht verfügbar");
   }
 
   const address = String(formData.get("address") ?? "").trim();
   if (!address) return { error: "Bitte eine Adresse eingeben." };
 
-  const resolved = await getResolvedCoworker(session.orgId, "bodo");
   const a = await createAssessment(session.orgId, address, {
-    snapshot: (resolved.config ?? {}) as object,
+    snapshot: resolved.config as Prisma.InputJsonValue,
     version: resolved.manifest.configVersion,
   });
 
-  await inngest.send({ name: "assessment/requested", data: { assessmentId: a.id } });
+  // Enqueue separat absichern: schlägt inngest.send fehl, darf das Assessment nicht ewig
+  // in `pending` hängen (wie Franz: bei Enqueue-Fehler → failed). redirect() MUSS außerhalb
+  // des try stehen (es wirft intern NEXT_REDIRECT, das der catch sonst verschluckte).
+  try {
+    await inngest.send({ name: "assessment/requested", data: { assessmentId: a.id } });
+  } catch (err) {
+    await failIfNotTerminal(a.id, "Job konnte nicht eingereiht werden");
+    logError("bodo", "assessment/requested enqueue failed", err, { assessmentId: a.id });
+    return { error: "Analyse konnte nicht gestartet werden. Bitte erneut versuchen." };
+  }
+
   redirect(`/c/bodo/standorte/${a.id}`);
 }
 ```

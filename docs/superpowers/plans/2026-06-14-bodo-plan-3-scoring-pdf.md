@@ -54,6 +54,22 @@ describe("computeScores", () => {
     const s = computeScores(p, { weights });
     expect(s.vermarktungsScore).toBeGreaterThanOrEqual(0);
   });
+
+  it("forces a red Ampel and lowers the signal in a HQ100 flood zone", () => {
+    const strongPois = ok(
+      { supermarket: { count: 3, nearestM: 150 }, pharmacy: { count: 2, nearestM: 100 }, school: { count: 4, nearestM: 120 }, park: { count: 2, nearestM: 80 }, restaurant: { count: 5, nearestM: 40 } },
+      { source: "", license: "", confidence: "medium" },
+    );
+    const p = profile({
+      pois: strongPois,
+      transit: ok({ nearest: { distanceM: 120 } }, { source: "", license: "", confidence: "high" }),
+      hochwasser: ok({ hqHaeufig: false, hq100: true, hqExtrem: true }, { source: "", license: "", confidence: "high" }),
+    });
+    const s = computeScores(p, { weights });
+    expect(s.ampel).toBe("rot"); // trotz starker Lage → durch Hochwasser gedeckelt
+    expect(s.investitionsSignal.risiken).toContain("Hochwassergefahr (HQ100/häufig)");
+    expect(s.investitionsSignal.score).toBeLessThan(s.vermarktungsScore);
+  });
 });
 ```
 
@@ -62,6 +78,7 @@ describe("computeScores", () => {
 ```ts
 import type { LocationProfile } from "../pipeline/profile";
 import type { DataPoint } from "../sources/types";
+import type { ScoringWeights } from "../../config";
 
 export type Ampel = "gruen" | "gelb" | "rot";
 export interface Zielgruppe { id: string; label: string; score: number; }
@@ -71,7 +88,7 @@ export interface Scores {
   teilscores: Record<string, number>;
   zielgruppen: Zielgruppe[];
   primaereZielgruppe: string;
-  investitionsSignal: { score: number; label: string };
+  investitionsSignal: { score: number; label: string; risiken: string[] };
 }
 
 function val<T>(dp: DataPoint<T> | undefined): T | null {
@@ -85,7 +102,7 @@ function distScore(m: number | null, good: number, bad: number): number {
   return clamp01(1 - (m - good) / (bad - good));
 }
 
-export function computeScores(p: LocationProfile, cfg: { weights: Record<string, number> }): Scores {
+export function computeScores(p: LocationProfile, cfg: { weights: ScoringWeights }): Scores {
   const pois = val<Record<string, { count: number; nearestM: number | null }>>(p.fields.pois as DataPoint<any>);
   const transit = val<{ nearest: { distanceM: number } }>(p.fields.transit as DataPoint<any>);
 
@@ -99,11 +116,43 @@ export function computeScores(p: LocationProfile, cfg: { weights: Record<string,
     gastroKultur: pois ? clamp01((pois.restaurant?.count ?? 0) / 5) : 0.5,
   };
 
+  // Gewichte sind per Schema fest & nichtnegativ (config), also 0 ≤ weighted ≤ 1.
+  // Clamp dennoch defensiv → vermarktungsScore garantiert in [0,100].
   const totalW = Object.values(cfg.weights).reduce((a, b) => a + b, 0) || 1;
-  const weighted = Object.entries(teil).reduce((sum, [k, v]) => sum + v * (cfg.weights[k] ?? 0), 0) / totalW;
-  const vermarktungsScore = Math.round(weighted * 100);
+  const weighted = Object.entries(teil).reduce((sum, [k, v]) => sum + v * (cfg.weights[k as keyof ScoringWeights] ?? 0), 0) / totalW;
+  const vermarktungsScore = Math.max(0, Math.min(100, Math.round(weighted * 100)));
 
-  const ampel: Ampel = vermarktungsScore >= 66 ? "gruen" : vermarktungsScore >= 40 ? "gelb" : "rot";
+  // --- Standortrisiken (preishemmend) — gehen in Ampel UND Investitions-Signal ein ---
+  const flood = val<{ hqHaeufig: boolean; hq100: boolean; hqExtrem: boolean }>(p.fields.hochwasser as DataPoint<any>);
+  const geol = val<{ grundwasserHoch: boolean }>(p.fields.geologie as DataPoint<any>);
+  const natur = val<{ nsg: boolean; lsg: boolean; ffh: boolean; vogel: boolean; biotop: boolean }>(p.fields.natur as DataPoint<any>);
+  const denkmal = val<{ einzeldenkmal: boolean; ensemble: boolean; bodendenkmal: boolean }>(p.fields.denkmal as DataPoint<any>);
+
+  const risiken: { label: string; severity: number }[] = [];
+  if (flood?.hq100 || flood?.hqHaeufig) risiken.push({ label: "Hochwassergefahr (HQ100/häufig)", severity: 3 });
+  else if (flood?.hqExtrem) risiken.push({ label: "Hochwasser bei Extremereignis (HQextrem)", severity: 1 });
+  if (geol?.grundwasserHoch) risiken.push({ label: "Hohe Grundwasserstände", severity: 1 });
+  if (natur?.nsg || natur?.ffh || natur?.vogel) risiken.push({ label: "Strenger Naturschutz (NSG/FFH/Vogelschutz)", severity: 3 });
+  else if (natur?.lsg || natur?.biotop) risiken.push({ label: "Landschaftsschutz/Biotop", severity: 1 });
+  if (denkmal?.einzeldenkmal || denkmal?.ensemble) risiken.push({ label: "Denkmalschutz (Einzel/Ensemble)", severity: 2 });
+  else if (denkmal?.bodendenkmal) risiken.push({ label: "Bodendenkmal", severity: 1 });
+
+  const riskPenalty = risiken.reduce((s, r) => s + r.severity, 0);
+  const hardRisk = risiken.some((r) => r.severity >= 3);
+
+  // Ampel aus Vermarktungs-Score, durch Risiken gedeckelt: harte Risiken (Hochwasser
+  // HQ100/häufig, strenger Naturschutz) erzwingen rot; mittlere Risiken bremsen grün → gelb.
+  let ampel: Ampel = vermarktungsScore >= 66 ? "gruen" : vermarktungsScore >= 40 ? "gelb" : "rot";
+  if (hardRisk) ampel = "rot";
+  else if (riskPenalty >= 2 && ampel === "gruen") ampel = "gelb";
+
+  // Investitions-Signal = Vermarktung minus preishemmende Faktoren (nicht bloße Kopie).
+  const signalScore = Math.max(0, Math.min(100, vermarktungsScore - riskPenalty * 8));
+  const investitionsSignal = {
+    score: signalScore,
+    label: hardRisk ? "Erhöhtes Risiko" : signalScore >= 66 ? "Positives Signal" : signalScore >= 40 ? "Neutral" : "Entwicklungslage",
+    risiken: risiken.map((r) => r.label),
+  };
 
   const zielgruppen: Zielgruppe[] = [
     { id: "familien", label: "Familien", score: Math.round((teil.schulen * 0.5 + teil.gruen * 0.3 + teil.nahversorgung * 0.2) * 100) },
@@ -119,7 +168,7 @@ export function computeScores(p: LocationProfile, cfg: { weights: Record<string,
     teilscores: Object.fromEntries(Object.entries(teil).map(([k, v]) => [k, Math.round(v * 100)])),
     zielgruppen,
     primaereZielgruppe: zielgruppen[0].label,
-    investitionsSignal: { score: vermarktungsScore, label: vermarktungsScore < 40 ? "Entwicklungslage" : "Leichtes Signal" },
+    investitionsSignal,
   };
 }
 ```
@@ -247,25 +296,44 @@ it("stays ready with null narrative if generator throws", async () => {
 
 ```ts
 // in runAssessment, nach profile:
-const snapshot = snap.configSnapshot as { narrative?: { systemPrompt?: string }; scoring?: { weights?: Record<string, number> } };
-const scores = computeScores(profile, { weights: snapshot.scoring?.weights ?? {} });
+// configSnapshot NICHT roh casten: über das Manifest-Schema migrieren (configVersion →
+// aktuelle Version via configMigrations), über Defaults mergen und validieren — exakt das,
+// was resolveConfig() auch für die Live-Config tut. Bei ungültigem Snapshot fällt es laut
+// geloggt auf Defaults zurück (statt mit kaputten Gewichten/Prompt zu rechnen).
+const cfg = resolveConfig(bodoManifest, {
+  config: snap.configSnapshot,
+  configVersion: snap.configVersion,
+});
+const scores = computeScores(profile, { weights: cfg.scoring.weights });
 
 let narrative: string | null = null;
 try {
-  narrative = await deps.generateNarrative({ profile, scores, systemPrompt: snapshot.narrative?.systemPrompt ?? "" });
+  narrative = await deps.generateNarrative({ profile, scores, systemPrompt: cfg.narrative.systemPrompt });
 } catch (e) {
   log("bodo", "narrative failed, continuing", { id, error: e instanceof Error ? e.message : String(e) });
 }
 
 await markReady(id, {
-  profile: profile as unknown as object,
-  scores: scores as unknown as object,
+  profile: profile as unknown as Prisma.InputJsonValue,
+  scores: scores as unknown as Prisma.InputJsonValue,
   narrative,
   lat: geo.lat, lon: geo.lon,
 });
 ```
 
-Imports oben in `run-assessment.ts`: `import { computeScores } from "./server/scoring/score";` und `NarrativeInput`-Typ; `RunAssessmentDeps` erhält `generateNarrative: (input: NarrativeInput) => Promise<string>`.
+Imports oben in `run-assessment.ts`:
+```ts
+import { resolveConfig } from "@/coworkers";            // re-exportiert in Plan 1 Task 3
+import { bodoManifest } from "./manifest";
+import { computeScores } from "./server/scoring/score";
+import type { NarrativeInput } from "./server/narrative/narrative";
+// (Prisma-Typ ist seit Plan 1 importiert)
+```
+`RunAssessmentDeps` erhält `generateNarrative: (input: NarrativeInput) => Promise<string>`.
+
+> Hinweis: `getSnapshot` liefert `configVersion` mit (Plan 1 Task 6). Da `cfg` voll typisiert
+> ist (`BodoConfig`), ist `cfg.scoring.weights` bereits `ScoringWeights` — passt direkt auf
+> `computeScores`.
 
 In `src/inngest/functions.ts` die echten Implementierungen injizieren:
 
