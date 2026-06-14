@@ -1,5 +1,3 @@
-import type { Coordinate } from "../pipeline/profile";
-
 export type SourceId =
   | "elevation"
   | "pois"

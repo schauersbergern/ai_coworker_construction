@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { unavailable, ok } from "./types";
+import { unavailable, ok, errored } from "./types";
 
 describe("DataPoint helpers", () => {
   it("ok() builds an ok data point", () => {
@@ -13,5 +13,11 @@ describe("DataPoint helpers", () => {
     expect(dp.status).toBe("unavailable");
     expect(dp.value).toBeNull();
     expect(dp.reason).toBe("nicht per API abrufbar");
+  });
+  it("errored() builds an error data point with low confidence", () => {
+    const dp = errored<number>({ source: "Z", license: "CC BY 4.0", reason: "timeout" });
+    expect(dp.status).toBe("error");
+    expect(dp.value).toBeNull();
+    expect(dp.confidence).toBe("low");
   });
 });
