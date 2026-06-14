@@ -52,6 +52,14 @@ describe("runAssessment", () => {
     expect(after?.status).toBe("cancelled");
   });
 
+  it("cancels a running assessment when the coworker became unavailable (retry path)", async () => {
+    const a = await createAssessment("org1", "addr", { snapshot: {}, version: 0 });
+    expect(await claimForRun(a.id)).toBe(true); // status ist jetzt running
+    await runAssessment(a.id, { ...deps, isAvailable: vi.fn(async () => false) });
+    const after = await prisma.assessment.findUnique({ where: { id: a.id } });
+    expect(after?.status).toBe("cancelled");
+  });
+
   it("fails for an address outside Bayern", async () => {
     const a = await createAssessment("org1", "Alexanderplatz, Berlin", { snapshot: {}, version: 0 });
     await runAssessment(a.id, {
