@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
+import { isAvailable } from "@/coworkers";
 import { getProject } from "@/server/projects/projects.service";
 import { storage } from "@/server/storage";
 
@@ -15,6 +16,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
   const projectId = segments[1];
   const project = await getProject(session.orgId, projectId);
   if (!project) return new NextResponse("Not found", { status: 404 });
+
+  if (!(await isAvailable(session.orgId, "franz"))) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   if (!(await storage.exists(key))) return new NextResponse("Not found", { status: 404 });
 

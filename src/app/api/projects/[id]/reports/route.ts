@@ -1,14 +1,21 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { requireSession } from "@/server/auth/require-session";
+import { getResolvedCoworker } from "@/coworkers";
+import { franzManifest } from "@/coworkers/franz/manifest";
 import { getProject } from "@/server/projects/projects.service";
-import { listNotes } from "@/server/notes/notes.service";
-import { createReport, setReportStatus } from "@/server/reports/reports.service";
+import { listNotes } from "@/coworkers/franz/server/notes/notes.service";
+import { createReport, setReportStatus } from "@/coworkers/franz/server/reports/reports.service";
 import { inngest } from "@/inngest/client";
 import { log, logError } from "@/server/log";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
   const { id: projectId } = await params;
+  const franz = await getResolvedCoworker(session.orgId, "franz");
+  if (!franz || franz.availability !== "available") {
+    return new NextResponse("Not found", { status: 404 });
+  }
   const project = await getProject(session.orgId, projectId);
   if (!project) return new NextResponse("Not found", { status: 404 });
 
@@ -28,7 +35,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   const label = `Export ${new Date().toLocaleDateString("de-AT")}`;
-  const report = await createReport(projectId, { label, createdById: session.userId });
+  const report = await createReport(projectId, {
+    label,
+    createdById: session.userId,
+    configSnapshot: franz.config as Prisma.InputJsonValue,
+    configVersion: franzManifest.configVersion,
+  });
   log("export", "report requested", { projectId, reportId: report.id, usableNotes: usable.length });
 
   try {

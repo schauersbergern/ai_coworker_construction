@@ -60,6 +60,7 @@ model Organization {
   createdAt DateTime  @default(now())
   users     User[]
   projects  Project[]
+  modules   OrgModule[]
 }
 
 model Project {
@@ -81,6 +82,7 @@ enum TranscriptStatus {
   pending
   done
   failed
+  cancelled
 }
 
 model Note {
@@ -112,6 +114,7 @@ enum ReportStatus {
   pending
   done
   failed
+  cancelled
 }
 
 model Report {
@@ -122,9 +125,26 @@ model Report {
   status      ReportStatus @default(pending)
   pdfUrl      String?
   reportJson  Json?
+  configSnapshot Json?
+  configVersion  Int?
   createdById String?
   createdBy   User?    @relation(fields: [createdById], references: [id])
   generatedAt DateTime @default(now())
 
   @@index([projectId])
+}
+
+model OrgModule {
+  id            String   @id @default(cuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  coworkerId    String
+  enabled       Boolean  @default(true)
+  config        Json?
+  configVersion Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([orgId, coworkerId])
+  @@index([orgId])
 }

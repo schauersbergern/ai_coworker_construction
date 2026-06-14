@@ -1,47 +1,15 @@
 import Link from "next/link";
 import { requireSession } from "@/server/auth/require-session";
-
-type Employee = {
-  id: string;
-  name: string;
-  role: string;
-  blurb: string;
-  emoji: string;
-  href?: string;
-  status: "aktiv" | "bald";
-};
-
-const EMPLOYEES: Employee[] = [
-  {
-    id: "franz",
-    name: "Franz",
-    role: "Baudokumentation",
-    blurb:
-      "Erfasst Mängel & Fortschritt per Sprachnotiz und Foto — und erstellt daraus auf Knopfdruck den fertigen PDF-Bericht.",
-    emoji: "👷",
-    href: "/projects",
-    status: "aktiv",
-  },
-  {
-    id: "mira",
-    name: "Mira",
-    role: "Angebote & Leistungen",
-    blurb: "Erstellt Angebote und Leistungsbeschreibungen aus deinen Vorgaben.",
-    emoji: "📐",
-    status: "bald",
-  },
-  {
-    id: "theo",
-    name: "Theo",
-    role: "Bauzeit & Termine",
-    blurb: "Plant Bauzeiten, behält Fristen und Wiedervorlagen im Blick.",
-    emoji: "📅",
-    status: "bald",
-  },
-];
+import { getResolvedCoworkers } from "@/coworkers";
+import type { ResolvedCoworker } from "@/coworkers/types";
 
 export default async function EmployeesPage() {
-  await requireSession();
+  const session = await requireSession();
+  const resolved = await getResolvedCoworkers(session.orgId);
+  // Nur buchbare oder als Teaser sichtbare Mitarbeiter zeigen.
+  const visible = resolved.filter(
+    (r) => r.availability === "available" || r.availability === "comingSoon",
+  );
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-10 sm:py-14">
@@ -54,16 +22,17 @@ export default async function EmployeesPage() {
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {EMPLOYEES.map((e) => (
-          <EmployeeCard key={e.id} employee={e} />
+        {visible.map((r) => (
+          <EmployeeCard key={r.manifest.id} resolved={r} />
         ))}
       </div>
     </div>
   );
 }
 
-function EmployeeCard({ employee }: { employee: Employee }) {
-  const active = employee.status === "aktiv";
+function EmployeeCard({ resolved }: { resolved: ResolvedCoworker }) {
+  const { manifest, availability } = resolved;
+  const active = availability === "available";
 
   const inner = (
     <>
@@ -73,7 +42,7 @@ function EmployeeCard({ employee }: { employee: Employee }) {
             active ? "bg-cobalt/10" : "bg-black/[0.04]"
           }`}
         >
-          <span className={active ? "" : "grayscale opacity-60"}>{employee.emoji}</span>
+          <span className={active ? "" : "grayscale opacity-60"}>{manifest.emoji}</span>
         </div>
         {active ? (
           <span className="text-[0.7rem] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 rounded-full px-2.5 py-1">
@@ -87,9 +56,9 @@ function EmployeeCard({ employee }: { employee: Employee }) {
       </div>
 
       <div className="mt-4">
-        <h2 className="text-xl font-bold">{employee.name}</h2>
-        <p className="label-eyebrow mt-0.5 !text-muted">{employee.role}</p>
-        <p className="text-sm text-muted mt-2 leading-relaxed">{employee.blurb}</p>
+        <h2 className="text-xl font-bold">{manifest.name}</h2>
+        <p className="label-eyebrow mt-0.5 !text-muted">{manifest.role}</p>
+        <p className="text-sm text-muted mt-2 leading-relaxed">{manifest.blurb}</p>
       </div>
 
       <div className="mt-5">
@@ -103,9 +72,9 @@ function EmployeeCard({ employee }: { employee: Employee }) {
   );
 
   const base = "card p-5 flex flex-col transition-transform";
-  if (active && employee.href) {
+  if (active) {
     return (
-      <Link href={employee.href} className={`${base} hover:-translate-y-0.5 hover:shadow-md`}>
+      <Link href={manifest.entryPath} className={`${base} hover:-translate-y-0.5 hover:shadow-md`}>
         {inner}
       </Link>
     );

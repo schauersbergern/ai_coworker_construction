@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
-import { getNoteForOrg, setTranscript, deleteNote } from "@/server/notes/notes.service";
+import { isAvailable } from "@/coworkers";
+import { getNoteForOrg, setTranscript, deleteNote } from "@/coworkers/franz/server/notes/notes.service";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; noteId: string }> }) {
   const session = await requireSession();
   const { id, noteId } = await params;
+  if (!(await isAvailable(session.orgId, "franz"))) {
+    return new NextResponse("Not found", { status: 404 });
+  }
   const note = await getNoteForOrg(session.orgId, noteId);
   if (!note || note.projectId !== id) return new NextResponse("Not found", { status: 404 });
 
@@ -17,6 +21,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string; noteId: string }> }) {
   const session = await requireSession();
   const { id, noteId } = await params;
+  if (!(await isAvailable(session.orgId, "franz"))) {
+    return new NextResponse("Not found", { status: 404 });
+  }
   const note = await getNoteForOrg(session.orgId, noteId);
   if (!note || note.projectId !== id) return new NextResponse("Not found", { status: 404 });
 

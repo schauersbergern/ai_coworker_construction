@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
+import { isAvailable } from "@/coworkers";
 import { getProject } from "@/server/projects/projects.service";
-import { createNote, setTranscriptStatus } from "@/server/notes/notes.service";
+import { createNote, setTranscriptStatus } from "@/coworkers/franz/server/notes/notes.service";
 import { storage } from "@/server/storage";
 import { inngest } from "@/inngest/client";
 import { log, logError } from "@/server/log";
@@ -18,6 +19,9 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // 25 MB
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
   const { id: projectId } = await params;
+  if (!(await isAvailable(session.orgId, "franz"))) {
+    return new NextResponse("Not found", { status: 404 });
+  }
   const project = await getProject(session.orgId, projectId);
   if (!project) return new NextResponse("Not found", { status: 404 });
 
