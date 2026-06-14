@@ -29,9 +29,14 @@ export async function geocode(address: string): Promise<GeocodeResult | null> {
   const hits = await throttled(() => fetchJson<NominatimHit[]>(url));
   const h = hits[0];
   if (!h) return null;
+  const lat = Number(h.lat);
+  const lon = Number(h.lon);
+  // Defensiv: malformierte Koordinaten (NaN) nicht als gültigen Treffer durchreichen —
+  // sonst liefe ein Unsinns-Punkt in den Bayern-Check/Profile-Aufbau.
+  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
   return {
-    lat: Number(h.lat),
-    lon: Number(h.lon),
+    lat,
+    lon,
     district: h.address?.suburb ?? h.address?.city_district ?? null,
     plz: h.address?.postcode ?? null,
     state: h.address?.state ?? null,

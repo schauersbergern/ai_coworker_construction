@@ -36,14 +36,19 @@ export const DENKMAL = {
 } as const;
 
 export const DGM1 = {
-  // ⚠️ ZU VERIFIZIEREN: exakter WMS-Endpoint/Layer/Property für den DGM1-Höhenwert (LDBV).
-  base: "https://www.lfu.bayern.de/gdi/wms/geo/dgm",
+  // ⚠️ ZU VERIFIZIEREN: DGM1 stammt laut Registry vom LDBV (geodaten.bayern.de/opengeodata),
+  // NICHT vom LfU. Die Base unten ist ein Platzhalter auf der FALSCHEN Autorität — beim
+  // Verifizieren den echten LDBV-Höhen-/WMS-Endpoint (geodaten.bayern.de) samt Layer/Property
+  // ermitteln und hier eintragen. Bis dahin liefert der elevation-Adapter ggf. unavailable.
+  base: "https://geodaten.bayern.de/dgm1-PLATZHALTER",
   layer: "dgm1",
   valueProp: "GRAY_INDEX",
 } as const;
 
 export const PVGIS = { base: "https://re.jrc.ec.europa.eu/api/v5_2/PVcalc" } as const;
 
+// Primärquelle laut Registry ist UBA (https://luftqualitaet.api.bund.dev/); Open-Meteo ist
+// der Fallback. MVP wired zunächst nur Open-Meteo (keyfrei, stabil); UBA später ergänzen.
 export const LUFT = { base: "https://air-quality-api.open-meteo.com/v1/air-quality" } as const;
 
 export const SOZIO = {
