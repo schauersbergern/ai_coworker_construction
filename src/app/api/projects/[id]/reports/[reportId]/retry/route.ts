@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
 import { isAvailable } from "@/coworkers";
-import { getReportForOrg, setReportStatus } from "@/server/reports/reports.service";
+import { getReportForOrg, setReportStatus } from "@/coworkers/franz/server/reports/reports.service";
 import { inngest } from "@/inngest/client";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string; reportId: string }> }) {

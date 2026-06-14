@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
 import { isAvailable } from "@/coworkers";
-import { getNoteForOrg, setTranscriptStatus } from "@/server/notes/notes.service";
+import { getNoteForOrg, setTranscriptStatus } from "@/coworkers/franz/server/notes/notes.service";
 import { inngest } from "@/inngest/client";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string; noteId: string }> }) {

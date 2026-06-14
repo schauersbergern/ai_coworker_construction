@@ -6,7 +6,7 @@ import { prisma } from "@/server/db";
 import { isAvailable } from "@/coworkers";
 import { log, logError } from "@/server/log";
 import type { ObjectStorage } from "@/server/storage/object-storage";
-import type { Transcriber } from "@/server/transcription/transcriber";
+import type { Transcriber } from "@/coworkers/franz/server/transcription/transcriber";
 
 export type TranscribeDeps = { storage: ObjectStorage; transcriber: Transcriber };
 

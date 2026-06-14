@@ -1,9 +1,9 @@
 import "server-only";
 import { requireSession } from "@/server/auth/require-session";
 import { getProject } from "@/server/projects/projects.service";
-import { listNotes } from "@/server/notes/notes.service";
-import { listPhotos } from "@/server/photos/photos.service";
-import { listReports } from "@/server/reports/reports.service";
+import { listNotes } from "@/coworkers/franz/server/notes/notes.service";
+import { listPhotos } from "@/coworkers/franz/server/photos/photos.service";
+import { listReports } from "@/coworkers/franz/server/reports/reports.service";
 import { getResolvedCoworker } from "@/coworkers";
 import { franzDefaultConfig, type FranzConfig } from "@/coworkers/franz/config";
 

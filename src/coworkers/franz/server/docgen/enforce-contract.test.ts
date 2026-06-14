@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { enforceFindingsContract } from "./enforce-contract";
-import type { ReportContent } from "@/server/reports/report-content";
+import type { ReportContent } from "@/coworkers/franz/server/reports/report-content";
 
 const finding = (noteId: string): ReportContent["findings"][number] => ({
   noteId,

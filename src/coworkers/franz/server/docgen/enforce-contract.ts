@@ -1,4 +1,4 @@
-import type { ReportContent } from "@/server/reports/report-content";
+import type { ReportContent } from "@/coworkers/franz/server/reports/report-content";
 
 /**
  * Erzwingt den Kernvertrag der Doku-Generierung: GENAU eine Feststellung pro Eingabe-Notiz,

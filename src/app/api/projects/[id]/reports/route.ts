@@ -4,8 +4,8 @@ import { requireSession } from "@/server/auth/require-session";
 import { getResolvedCoworker } from "@/coworkers";
 import { franzManifest } from "@/coworkers/franz/manifest";
 import { getProject } from "@/server/projects/projects.service";
-import { listNotes } from "@/server/notes/notes.service";
-import { createReport, setReportStatus } from "@/server/reports/reports.service";
+import { listNotes } from "@/coworkers/franz/server/notes/notes.service";
+import { createReport, setReportStatus } from "@/coworkers/franz/server/reports/reports.service";
 import { inngest } from "@/inngest/client";
 import { log, logError } from "@/server/log";
 

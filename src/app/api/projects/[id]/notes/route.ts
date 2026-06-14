@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
 import { isAvailable } from "@/coworkers";
 import { getProject } from "@/server/projects/projects.service";
-import { createNote, setTranscriptStatus } from "@/server/notes/notes.service";
+import { createNote, setTranscriptStatus } from "@/coworkers/franz/server/notes/notes.service";
 import { storage } from "@/server/storage";
 import { inngest } from "@/inngest/client";
 import { log, logError } from "@/server/log";

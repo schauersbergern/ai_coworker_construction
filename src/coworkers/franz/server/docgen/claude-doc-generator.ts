@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { reportContentSchema, type ReportContent } from "@/server/reports/report-content";
+import { reportContentSchema, type ReportContent } from "@/coworkers/franz/server/reports/report-content";
 import { enforceFindingsContract } from "./enforce-contract";
 import type { DocGenerator, DocGenInput } from "./doc-generator";
 

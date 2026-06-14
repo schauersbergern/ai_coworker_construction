@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prisma } from "@/server/db";
 import { LocalStorage } from "@/server/storage/local-storage";
-import { FakeTranscriber } from "@/server/transcription/transcriber";
+import { FakeTranscriber } from "@/coworkers/franz/server/transcription/transcriber";
 import { runTranscribeNote } from "./transcribe-note";
 
 let dir: string;

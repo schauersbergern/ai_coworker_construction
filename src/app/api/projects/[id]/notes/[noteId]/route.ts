@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
 import { isAvailable } from "@/coworkers";
-import { getNoteForOrg, setTranscript, deleteNote } from "@/server/notes/notes.service";
+import { getNoteForOrg, setTranscript, deleteNote } from "@/coworkers/franz/server/notes/notes.service";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string; noteId: string }> }) {
   const session = await requireSession();

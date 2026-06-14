@@ -1,4 +1,4 @@
-import type { ReportContent } from "@/server/reports/report-content";
+import type { ReportContent } from "@/coworkers/franz/server/reports/report-content";
 
 export type DocGenInput = {
   projectName: string;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
 import { isAvailable } from "@/coworkers";
-import { getPhotoForOrg, deletePhoto } from "@/server/photos/photos.service";
+import { getPhotoForOrg, deletePhoto } from "@/coworkers/franz/server/photos/photos.service";
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string; photoId: string }> }) {
   const session = await requireSession();

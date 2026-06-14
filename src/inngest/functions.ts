@@ -1,10 +1,10 @@
 import type { InngestFunction } from "inngest";
 import { inngest } from "./client";
-import { runTranscribeNote } from "@/server/notes/transcribe-note";
-import { runGenerateReport } from "@/server/reports/generate-report";
+import { runTranscribeNote } from "@/coworkers/franz/server/notes/transcribe-note";
+import { runGenerateReport } from "@/coworkers/franz/server/reports/generate-report";
 import { storage } from "@/server/storage";
-import { LocalWhisperTranscriber } from "@/server/transcription/local-whisper";
-import { ClaudeDocGenerator } from "@/server/docgen/claude-doc-generator";
+import { LocalWhisperTranscriber } from "@/coworkers/franz/server/transcription/local-whisper";
+import { ClaudeDocGenerator } from "@/coworkers/franz/server/docgen/claude-doc-generator";
 import { log } from "@/server/log";
 
 export const transcribeNote = inngest.createFunction(

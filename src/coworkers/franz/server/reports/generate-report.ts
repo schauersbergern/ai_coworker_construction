@@ -7,13 +7,13 @@ import {
   setReportStatus,
 } from "./reports.internal";
 import { matchPhotosToNotes } from "./photo-matching";
-import { renderReportPdf } from "@/server/pdf/render-report";
+import { renderReportPdf } from "@/coworkers/franz/server/pdf/render-report";
 import { prisma } from "@/server/db";
 import { isAvailable } from "@/coworkers";
 import { franzConfigSchema, franzDefaultConfig } from "@/coworkers/franz/config";
 import { log, logError } from "@/server/log";
-import type { RenderFinding } from "@/server/pdf/report-document";
-import type { DocGenerator } from "@/server/docgen/doc-generator";
+import type { RenderFinding } from "@/coworkers/franz/server/pdf/report-document";
+import type { DocGenerator } from "@/coworkers/franz/server/docgen/doc-generator";
 import type { ObjectStorage } from "@/server/storage/object-storage";
 
 export type GenerateDeps = { storage: ObjectStorage; docGenerator: DocGenerator; now: Date };

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/auth/require-session";
 import { isAvailable } from "@/coworkers";
 import { getProject } from "@/server/projects/projects.service";
-import { createPhoto } from "@/server/photos/photos.service";
-import { extractTakenAt } from "@/server/photos/exif";
+import { createPhoto } from "@/coworkers/franz/server/photos/photos.service";
+import { extractTakenAt } from "@/coworkers/franz/server/photos/exif";
 import { storage } from "@/server/storage";
 
 const ALLOWED = new Map<string, string>([

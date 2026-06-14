@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prisma } from "@/server/db";
 import { LocalStorage } from "@/server/storage/local-storage";
-import { FakeDocGenerator } from "@/server/docgen/doc-generator";
+import { FakeDocGenerator } from "@/coworkers/franz/server/docgen/doc-generator";
 import { runGenerateReport } from "./generate-report";
 import "@/coworkers"; // registriert Franz im Resolver (isAvailable braucht das Manifest)
 
