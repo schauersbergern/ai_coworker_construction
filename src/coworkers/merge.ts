@@ -6,6 +6,10 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
  * Tiefes Mergen von Plain-Objects: override gewinnt, verschachtelte Objekte werden
  * rekursiv gemergt, Arrays und Skalare werden ersetzt (nicht gemergt). Ist eine Seite
  * kein Plain-Object, gewinnt override (außer override ist undefined → base bleibt).
+ *
+ * Hinweis: Das Ergebnis teilt Struktur mit `base` (nur in `override` vorhandene Zweige
+ * werden kopiert). Das Ergebnis ist als read-only zu behandeln; nicht in-place mutieren,
+ * sonst wird die geteilte `defaultConfig` korrumpiert.
  */
 export function deepMerge<T>(base: T, override: unknown): T {
   if (!isPlainObject(base) || !isPlainObject(override)) {
@@ -13,6 +17,7 @@ export function deepMerge<T>(base: T, override: unknown): T {
   }
   const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(override)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
     out[k] = k in base ? deepMerge((base as Record<string, unknown>)[k], v) : v;
   }
   return out as T;

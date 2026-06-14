@@ -21,4 +21,11 @@ describe("deepMerge", () => {
   it("returns base unchanged when override is not a plain object", () => {
     expect(deepMerge({ a: 1 }, null)).toEqual({ a: 1 });
   });
+
+  it("ignores __proto__ to prevent prototype pollution", () => {
+    const malicious = JSON.parse('{"__proto__": {"polluted": true}}');
+    const result = deepMerge<Record<string, unknown>>({ a: 1 }, malicious);
+    expect(result).toEqual({ a: 1 });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
 });
