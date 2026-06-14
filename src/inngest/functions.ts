@@ -6,6 +6,11 @@ import { storage } from "@/server/storage";
 import { LocalWhisperTranscriber } from "@/coworkers/franz/server/transcription/local-whisper";
 import { ClaudeDocGenerator } from "@/coworkers/franz/server/docgen/claude-doc-generator";
 import { log } from "@/server/log";
+import { isAvailable } from "@/coworkers";
+import { runAssessment } from "@/coworkers/bodo/run-assessment";
+import { geocode } from "@/coworkers/bodo/server/sources/nominatim";
+import { buildProfile } from "@/coworkers/bodo/server/pipeline/build-profile";
+import { failIfNotTerminal } from "@/coworkers/bodo/server/assessment/assessment.internal";
 
 export const transcribeNote = inngest.createFunction(
   { id: "transcribe-note", retries: 2, triggers: [{ event: "note/created" }] },
@@ -33,4 +38,31 @@ export const generateReport = inngest.createFunction(
   },
 );
 
-export const functions: InngestFunction.Any[] = [transcribeNote, generateReport];
+const RUN_ASSESSMENT_RETRIES = 3;
+
+export const runAssessmentJob = inngest.createFunction(
+  {
+    id: "run-assessment",
+    retries: RUN_ASSESSMENT_RETRIES,
+    idempotency: "event.data.assessmentId",
+    triggers: [{ event: "assessment/requested" }],
+    onFailure: async ({ event, error }: { event: { data: { event?: { data?: { assessmentId?: string } } } }; error: Error }) => {
+      const assessmentId = event.data?.event?.data?.assessmentId;
+      if (assessmentId) {
+        await failIfNotTerminal(assessmentId, error.message ?? "Job nach Retries fehlgeschlagen");
+      }
+    },
+  },
+  async ({ event, attempt }: { event: { data: { assessmentId: string } }; attempt: number }) => {
+    const { assessmentId } = event.data;
+    log("inngest", "run-assessment invoked", { assessmentId, attempt });
+    await runAssessment(
+      assessmentId,
+      { isAvailable, geocode, buildProfile },
+      { attempt, maxAttempts: RUN_ASSESSMENT_RETRIES },
+    );
+    return { assessmentId };
+  },
+);
+
+export const functions: InngestFunction.Any[] = [transcribeNote, generateReport, runAssessmentJob];
