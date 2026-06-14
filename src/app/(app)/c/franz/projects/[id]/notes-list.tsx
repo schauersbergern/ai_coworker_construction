@@ -145,7 +145,7 @@ function NoteRow({ projectId, note }: { projectId: string; note: NoteView }) {
         )}
       </div>
 
-      {note.transcriptStatus === "failed" && (
+      {(note.transcriptStatus === "failed" || note.transcriptStatus === "cancelled") && (
         <button onClick={retry} className="self-start text-cobalt underline text-sm">
           Transkription erneut versuchen
         </button>

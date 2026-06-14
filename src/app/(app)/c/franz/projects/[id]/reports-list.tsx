@@ -47,7 +47,7 @@ export function ReportsList({ projectId, reports }: { projectId: string; reports
                 PDF herunterladen
               </a>
             )}
-            {r.status === "failed" && (
+            {(r.status === "failed" || r.status === "cancelled") && (
               <button onClick={() => retry(r.id)} className="text-cobalt underline ml-auto">
                 Erneut versuchen
               </button>
